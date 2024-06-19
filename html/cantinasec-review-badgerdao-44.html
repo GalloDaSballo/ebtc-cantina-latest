@@ -1,0 +1,251 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>Bad debt accumulation index is reset on partial liquidation and is not reset on CDP increase, allowing for phantom bad debt creation</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/44">cantinasec/review-badgerdao#44</a></span>
+        </p>
+        <h1>Bad debt accumulation index is reset on partial liquidation and is not reset on CDP increase, allowing for phantom bad debt creation</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">dmitriia</a>
+            <time>10/6/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.5/packages/contracts/contracts/LiquidationLibrary.sol#L446">LiquidationLibrary.sol#L446</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.5/packages/contracts/contracts/CdpManager.sol#L913-L916">CdpManager.sol#L913-L916</a></p>
+<p><strong>Description:</strong> Partial liquidation incorrectly resets <code>debtRedistributionIndex</code> of the CDP, while CDP update functionality should reset it when CDP&#39;s collateral was increased, but doesn&#39;t do it. This can create debt that doesn&#39;t correspond to any eBTC minted.</p>
+<p>Pending bad debt accumulator is subject to rounding error, i.e. <code>pendingEBTCDebtReward</code> can routinely be zero for small CDPs:</p>
+<pre><code class="language-solidity">function _getPendingRedistributedDebt(
+    bytes32 _cdpId
+) internal view returns (uint256 pendingEBTCDebtReward) {
+    Cdp storage cdp = Cdps[_cdpId];
+
+    if (cdp.status != Status.active) {
+        return 0;
+    }
+
+    uint256 rewardPerUnitStaked = systemDebtRedistributionIndex -
+        debtRedistributionIndex[_cdpId];
+
+    if (rewardPerUnitStaked &gt; 0) {
+        // See the line below
+        pendingEBTCDebtReward = (cdp.stake * rewardPerUnitStaked) / DECIMAL_PRECISION;
+    }
+}
+</code></pre>
+<p><code>_updateRedistributedDebtSnapshot()</code>, that updates the bad debt index, is now called by <code>_syncAccounting()</code> only when pending bad debt is positive, i.e. when accumulation exceeds this rounding error:</p>
+<pre><code class="language-solidity">function _syncAccounting(bytes32 _cdpId) internal {
+    // See the line below
+    (, uint _newDebt, , uint _pendingDebt) = _applyAccumulatedFeeSplit(_cdpId);
+
+    // Update pending debts
+    if (_pendingDebt &gt; 0) { // See this line
+        Cdp storage _cdp = Cdps[_cdpId];
+        uint256 prevDebt = _cdp.debt;
+        uint256 prevColl = _cdp.coll;
+
+        // Apply pending rewards to cdp&#39;s state
+        _cdp.debt = _newDebt;
+        // See the line below
+        _updateRedistributedDebtSnapshot(_cdpId);
+        // ...
+</code></pre>
+<p>I.e. when there is a rounding to zero the implemented approach allows accumulation to happen until pending part becomes positive to correct for that rounding error over time. This can take long enough when CDP is small.</p>
+<p>But the same update is called in <code>_partiallyReduceCdpDebt()</code> in isolation and unconditionally:</p>
+<pre><code class="language-solidity">function _partiallyReduceCdpDebt(
+    bytes32 _cdpId,
+    uint256 _partialDebt,
+    uint256 _partialColl
+) internal {
+    Cdp storage _cdp = Cdps[_cdpId];
+
+    uint256 _coll = _cdp.coll;
+    uint256 _debt = _cdp.debt;
+
+    _cdp.coll = _coll - _partialColl;
+    _cdp.debt = _debt - _partialDebt;
+    _updateStakeAndTotalStakes(_cdpId);
+    // See the line below
+    _updateRedistributedDebtSnapshot(_cdpId);
+}
+</code></pre>
+<p>Notice that there was a <code>_syncAccounting()</code> state update at the beginning of the <code>partiallyLiquidate</code> call:</p>
+<pre><code class="language-solidity">// Single CDP liquidation function (partially).
+function partiallyLiquidate(
+    // ...
+) external nonReentrantSelfAndBOps {
+    _liquidateIndividualCdpSetup(_cdpId, _partialAmount, _upperPartialHint, _lowerPartialHint);
+}
+
+// Single CDP liquidation function.
+function _liquidateIndividualCdpSetup(
+    // ...
+) internal {
+    _requireCdpIsActive(_cdpId);
+    // See the line below
+    _syncAccounting(_cdpId);
+</code></pre>
+<p>Overall there can be 3 cases, it was either:</p>
+<ol>
+<li><code>_pendingDebt &gt; 0</code> and <code>_updateRedistributedDebtSnapshot(_cdpId)</code> in <code>_partiallyReduceCdpDebt()</code> does nothing as it was called already.</li>
+<li>Or <code>_pendingDebt == 0</code> and <code>debtRedistributionIndex[_cdpId] == systemDebtRedistributionIndex</code> and <code>_updateRedistributedDebtSnapshot(_cdpId)</code> also does nothing.</li>
+<li>Or <code>_pendingDebt == 0</code> and <code>debtRedistributionIndex[_cdpId] &lt; systemDebtRedistributionIndex</code>, i.e. there were a rounding of the pending part to zero. Since CDP stake can only fall as a result of partial liquidation, the rounding thereafter can only become worse.</li>
+</ol>
+<p>I.e. in order to reduce the total rounding error the correct take here is to keep old <code>debtRedistributionIndex[_cdpId]</code>, so it be updated later on when pending be accrued (slower than before as stake was reduced) to some positive value.</p>
+<p>Notice also that in the similar situation of stake reduction due to partial redemption there is no <code>debtRedistributionIndex</code> reset, which looks correct this way:</p>
+<pre><code class="language-solidity">function _redeemCollateralFromCdp(
+    SingleRedemptionInputs memory _redeemColFromCdp
+) internal returns (SingleRedemptionValues memory singleRedemption) {
+    // ...
+
+    if (newDebt == 0) {
+        // No debt remains, close CDP
+        // ...
+    } else {
+        // Debt remains, reinsert CDP
+        uint256 newNICR = LiquityMath._computeNominalCR(newColl, newDebt);
+
+        // ...
+
+        Cdps[_redeemColFromCdp.cdpId].debt = newDebt;
+        Cdps[_redeemColFromCdp.cdpId].coll = newColl;
+        // See the line below
+        _updateStakeAndTotalStakes(_redeemColFromCdp.cdpId);
+        // ...
+</code></pre>
+<p>On the other side, when CDP stake is increased, such debt index reset should take place as otherwise the accumulated <code>systemDebtRedistributionIndex - debtRedistributionIndex[_cdpId]</code> difference will be applied to the whole new stake next time, which can result in a massive new phantom bad debt creation when small CDP became much bigger as a result of CDP update.</p>
+<pre><code class="language-solidity">function updateCdp(
+    // ...
+) external {
+    _requireCallerIsBorrowerOperations();
+
+    _setCdpCollShares(_cdpId, _newColl);
+    _setCdpDebt(_cdpId, _newDebt);
+
+    uint256 stake = _updateStakeAndTotalStakes(_cdpId);
+
+    emit CdpUpdated(
+    // ...
+</code></pre>
+<p>I.e. suppose CDP&#39;s <code>debtRedistributionIndex</code> wasn&#39;t updated due to rounding to zero for a long time, then this CDP was increased by $10^5$ times by an update via <code>adjustCdpWithColl()</code> $\rightarrow$ <code>_adjustCdpInternal()</code>, while <code>debtRedistributionIndex</code> was kept intact as <code>cdpManager.syncAccounting(_cdpId)</code> was called before increase, while after increase no debt accruals updates are being made, as <code>_setCdpDebt</code> only rewrites current CDP debt figure.</p>
+<p>Impact: bad debt accumulation is written off within rounding error for a partially liquidated CDP, while new non-existent bad debt can be added on a substantial CDP size increase. The latter deteriorates the health of the CDP and creates eBTC debt that was never minted. In order for that to be material, the growth in CDP size should be massive, which on the one hand is a part of regular workflow, on the another doesn&#39;t frequently happen, so the probability here can be estimated as medium. In the same time this effect, being systematic, will accumulate over time across different CDPs.</p>
+<p>The effect from one CDPs is as follows: if realistic increase can be seen at $10^5x$, as there is a minimal CDP size constraint, a maximum increase can be, as an example, from having minimal collateral to <code>200k ETH</code> or about <code>USD 330 mln</code> at current rates. The impact will be about the same number in eBTC terms, as <code>0.99999 * 1e5</code> (i.e. <code>0.99999</code> was rounded to <code>0</code> before the increase) or <code>99999 * 27600 / 1e18 = 3 / 10^9 USD</code>.</p>
+<p>While this alone isn&#39;t material, there also considerations of this new debt not being representing any eBTC minted, so along with such new debt creation grows a chance of DOS from eBTC burn rejection, i.e. in absense of manual additional minting the last CDP might not be able to close (i.e. it sent its eBTC to the market so others can purchase and close, while it can&#39;t close as there is not enough eBTC in circulation). By itself this looks manageable.</p>
+<p>Both parts in total have high likelihood and low impact, so setting overall severity to be medium.</p>
+<p><strong>Recommendation:</strong> Consider removing <code>_updateRedistributedDebtSnapshot()</code> call in <code>_partiallyReduceCdpDebt()</code>:</p>
+<pre><code class="language-diff">  function _partiallyReduceCdpDebt(
+      // ...
+  ) internal {
+      // ...
+
+      _cdp.coll = _coll - _partialColl;
+      _cdp.debt = _debt - _partialDebt;
+      _updateStakeAndTotalStakes(_cdpId);
+
+-     _updateRedistributedDebtSnapshot(_cdpId);
+  }
+</code></pre>
+<p>Calling <code>_updateRedistributedDebtSnapshot()</code> in <code>updateCdp()</code> on CDP increase in the same time can be advised (the situation doesn&#39;t look to be symmetrical, nothing offsets this growth, so it need to be controlled at the price of forcing some debt rounding), consider adding:</p>
+<pre><code class="language-diff">  function updateCdp(
+      // ...
+  ) external {
+      _requireCallerIsBorrowerOperations();
+
+      _setCdpCollShares(_cdpId, _newColl);
+      _setCdpDebt(_cdpId, _newDebt);
+
+      uint256 stake = _updateStakeAndTotalStakes(_cdpId);
+
++     if (_newColl &gt; _coll) {
++         _updateRedistributedDebtSnapshot(_cdpId);
++     }
+
+      emit CdpUpdated(
+          _cdpId,
+          _borrower,
+          _debt,
+          _coll,
+          _newDebt,
+          _newColl,
+          stake,
+          CdpOperation.adjustCdp
+      );
+  }
+</code></pre>
+<p><strong>BadgerDAO:</strong> The related code change was introduced via advised fix in an <a href="https://github.com/spearbit-audits/review-badgerdao/issues/72">earlier audit</a> to apply update on <code>debtRedistributionIndex[_cdpId]</code> <strong>only if</strong> calculated <code>pendingDebt</code> is positive instead of original Liquity code behavior, i.e., <a href="https://github.com/liquity/dev/blob/main/packages/contracts/contracts/TroveManager.sol#L1060">direct <code>debtRedistributionIndex[_cdpId]</code> comparison against <code>systemDebtRedistributionIndex</code></a>. </p>
+<p>Intend to agree with the finding on:</p>
+<ul>
+<li>The &quot;phantom debt increase&quot; due to this update skip of <code>debtRedistributionIndex[_cdpId]</code>,</li>
+<li>And unconditional update of <code>debtRedistributionIndex[_cdpId]</code> in partial liquidation could make it worse when the <code>pendingDebt</code> is rounding to zero.</li>
+</ul>
+<p><strong>Cantina:</strong> Yes, <a href="https://github.com/spearbit-audits/review-badgerdao/issues/72">the issue from the past audit</a> had these implications we didn’t reflected at that moment.</p>
+<p>An alternative to the suggested mitigation here is to roll back that change, resetting the index all the time even if nothing was added to the accumulator, forfeiting bad debt accumulation for small CDPs. I.e. it might be the case that some part of bad debt distribution will be void for all the small ones due to the rounding if updates be frequent enough. Something like <code>F({frequency of updates}, {share of min collateral CDPs in the system})</code> $\rightarrow$ <code>{total share of bad debt being written off}</code> can be modelled to understand whether that’s material.</p>
+<p>Partial liquidation suggestion will still stand as no additional reset be needed in this case too.</p>
+<p><strong>BadgerDAO:</strong> The suggested fix is in <a href="https://github.com/Badger-Finance/ebtc/pull/694">PR 694</a>. Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/rayeaster">
+              rayeaster
+            </a>
+            <time>10/7/2023</time>
+          </div>
+          <div class="body"><p>The related code change was introduced via advised fix in <a href="https://github.com/spearbit-audits/review-badgerdao/issues/72">earlier audit</a> to apply update on <code>debtRedistributionIndex[_cdpId]</code> <strong>only if</strong> calculated <code>pendingDebt</code> is positive instead of original Liquity code behavior, i.e., <a href="https://github.com/liquity/dev/blob/main/packages/contracts/contracts/TroveManager.sol#L1060">direct <code>debtRedistributionIndex[_cdpId]</code> comparison against <code>systemDebtRedistributionIndex</code></a>. </p>
+<p>Intend to agree with @dmitriia finding on </p>
+<ul>
+<li>the &quot;phantom debt increase&quot; due to this update skip of <code>debtRedistributionIndex[_cdpId]</code> &amp; </li>
+<li>unconditional update of <code>debtRedistributionIndex[_cdpId]</code> in partial liquidation could make it worse when the <code>pendingDebt</code> is rounding to zero</li>
+</ul>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">
+              dmitriia
+            </a>
+            <time>10/7/2023</time>
+          </div>
+          <div class="body"><p>Yes, <a href="https://github.com/spearbit-audits/review-badgerdao/issues/72">#72</a> had these implications we didn’t reflected at that moment.</p>
+<p>An alternative to the suggested mitigation here is to roll back that change, resetting the index all the time even if nothing was added to the accumulator, forfeiting bad debt accumulation for small CDPs. I.e. it might be the case that some part of bad debt distribution will be void for all the small ones due to the rounding if updates be frequent enough. Something like <code>F({frequency of updates}, {share of min collateral CDPs in the system}) -&gt; {total share of bad debt being written off}</code> can be modelled to understand whether that’s material.</p>
+<p>Partial liquidation suggestion will still stand as no additional reset be needed in this case too.</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/rayeaster">
+              rayeaster
+            </a>
+            <time>10/13/2023</time>
+          </div>
+          <div class="body"><p>@dmitriia Hello ser, would you please take a look here for the fix as you suggested? Really appreciate
+<a href="https://github.com/Badger-Finance/ebtc/pull/694">https://github.com/Badger-Finance/ebtc/pull/694</a></p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

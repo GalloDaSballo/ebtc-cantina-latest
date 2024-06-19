@@ -1,0 +1,58 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>`LeverageMacroBase` does not allow the owner of the contract to perform CDP operations without performing a Flashloan</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/22">cantinasec/review-badgerdao#22</a></span>
+        </p>
+        <h1>`LeverageMacroBase` does not allow the owner of the contract to perform CDP operations without performing a Flashloan</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroBase.sol#L161">LeverageMacroBase.sol#L161</a></p>
+<p><strong>Description:</strong> The current implementation of <code>LeverageMacroBase</code> reverts if the <code>doOperation</code> does not execute a <code>stETH</code> or <code>eBTC</code> flashloan operation.</p>
+<p>There could be cases for which the owner of the contract could want to be able to adjust or close the CDP without performing a flashloan.</p>
+<p><strong>Recommendation:</strong> BadgerDAO should consider allowing the caller of <code>LeverageMacroBase.doOperation</code> to perform the <code>LeverageMacroOperation operation</code> without executing a flashloan.</p>
+<p><strong>BadgerDao:</strong> Addressed in <a href="https://github.com/ebtc-protocol/ebtc/pull/564">PR 564</a>. Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body"><p><a href="https://github.com/Badger-Finance/ebtc/pull/564">https://github.com/Badger-Finance/ebtc/pull/564</a></p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

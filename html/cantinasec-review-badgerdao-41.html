@@ -1,0 +1,101 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>BorrowerOperations and CdpManager function names and error messages don't fully reflect the logic with regard to ordering required</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/41">cantinasec/review-badgerdao#41</a></span>
+        </p>
+        <h1>BorrowerOperations and CdpManager function names and error messages don't fully reflect the logic with regard to ordering required</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">dmitriia</a>
+            <time>10/4/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.5/packages/contracts/contracts/BorrowerOperations.sol#L880">BorrowerOperations.sol#L880</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.5/packages/contracts/contracts/BorrowerOperations.sol#L786">BorrowerOperations.sol#L786</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.5/packages/contracts/contracts/BorrowerOperations.sol#L848">BorrowerOperations.sol#L848</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.5/packages/contracts/contracts/BorrowerOperations.sol#L855">BorrowerOperations.sol#L855</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.5/packages/contracts/contracts/BorrowerOperations.sol#L859">BorrowerOperations.sol#L859</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.5/packages/contracts/contracts/BorrowerOperations.sol#L866">BorrowerOperations.sol#L866</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.5/packages/contracts/contracts/CdpManager.sol#L747">CdpManager.sol#L747</a></p>
+<p><strong>Description:</strong> Function names and error messages do not strictly correspond to the logic, per list below.</p>
+<p><strong>Recommendation:</strong> BorrowerOperations.sol:</p>
+<p>Error messages can be updated, e.g.:</p>
+<pre><code class="language-diff">  function _requireAtLeastMinNetStEthBalance(uint256 _coll) internal pure {
+      require(
+          _coll &gt;= MIN_NET_COLL,
+-         &quot;BorrowerOperations: Cdp&#39;s net coll must be greater than minimum&quot;
++         &quot;BorrowerOperations: Cdp&#39;s net coll must not fall below minimum&quot;
+      );
+  }
+</code></pre>
+<p>and</p>
+<pre><code class="language-diff">  function _requireNoStEthBalanceDecrease(uint256 _stEthBalanceDecrease) internal pure {
+      require(
+          _stEthBalanceDecrease == 0,
+-         &quot;BorrowerOperations: Collateral withdrawal not permitted Recovery Mode&quot;
++         &quot;BorrowerOperations: Collateral withdrawal not permitted during Recovery Mode&quot;
+      );
+  }
+</code></pre>
+<p>Function names:</p>
+<p><code>_requireICRisAboveMCR()</code> can be renamed to <code>_requireICRisNotBelowMCR</code>:</p>
+<pre><code class="language-solidity">function _requireICRisAboveMCR(uint256 _newICR) internal pure {
+    require(
+        _newICR &gt;= MCR,
+        &quot;BorrowerOperations: An operation that would result in ICR &lt; MCR is not permitted&quot;
+    );
+}
+</code></pre>
+<p><code>_requireICRisAboveCCR()</code> can be renamed to <code>_requireICRisNotBelowCCR</code>:</p>
+<pre><code class="language-solidity">function _requireICRisAboveCCR(uint256 _newICR) internal pure {
+    require(_newICR &gt;= CCR, &quot;BorrowerOperations: Operation must leave cdp with ICR &gt;= CCR&quot;);
+}
+</code></pre>
+<p><code>_requireNewICRisAboveOldICR()</code> can be renamed to <code>_requireNoDecreaseOfICR()</code>:</p>
+<pre><code class="language-solidity">function _requireNewICRisAboveOldICR(uint256 _newICR, uint256 _oldICR) internal pure {
+    require(
+        _newICR &gt;= _oldICR,
+        &quot;BorrowerOperations: Cannot decrease your Cdp&#39;s ICR in Recovery Mode&quot;
+    );
+}
+</code></pre>
+<p><code>_requireNewTCRisAboveCCR()</code> can be renamed to <code>_requireNewTCRisNotBelowCCR()</code>:</p>
+<pre><code class="language-solidity">function _requireNewTCRisAboveCCR(uint256 _newTCR) internal pure {
+    require(
+        _newTCR &gt;= CCR,
+        &quot;BorrowerOperations: An operation that would result in TCR &lt; CCR is not permitted&quot;
+    );
+}
+</code></pre>
+<p><code>CdpManager.sol</code>:</p>
+<p><code>_requireTCRoverMCR()</code> can be renamed to <code>_requireTCRisNotBelowMCR()</code>:</p>
+<pre><code class="language-solidity">function _requireTCRoverMCR(uint256 _price, uint256 _TCR) internal view {
+    require(_TCR &gt;= MCR, &quot;CdpManager: Cannot redeem when TCR &lt; MCR&quot;);
+}
+</code></pre>
+<p><strong>BadgerDAO:</strong> Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

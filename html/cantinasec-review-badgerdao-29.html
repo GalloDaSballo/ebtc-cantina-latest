@@ -1,0 +1,85 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>External entities could start/end the grace period, even when the grace period should not be started/ended</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/29">cantinasec/review-badgerdao#29</a></span>
+        </p>
+        <h1>External entities could start/end the grace period, even when the grace period should not be started/ended</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>9/24/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/CdpManagerStorage.sol#L77-L87">CdpManagerStorage.sol#L77-L87</a></p>
+<p><strong>Description:</strong></p>
+<p>The <code>syncGracePeriod</code> in <code>CdpManagerStorage</code> allows anyone to synchronize the grace period based on the current system debt, collateral and price. The problem with the implementation is that it does not trigger the synchronization of the <code>stETH</code> index and the distribution of the splitting fees that could bring the system in <code>RM</code> or &quot;normal mode&quot; based on the new index value, the amount of fee split and the price of <code>stETH</code>:</p>
+<pre><code class="language-solidity">function syncGracePeriod() public {
+    uint256 price = priceFeed.fetchPrice();
+    uint256 tcr = _getTCR(price);
+    bool isRecoveryMode = _checkRecoveryModeForTCR(tcr);
+
+    if (isRecoveryMode) {
+        _startGracePeriod(tcr);
+    } else {
+        _endGracePeriod(tcr);
+    }
+}
+</code></pre>
+<p>Based on the status of the system and the status of the grace period, calling the function could reset the grace period when it should not be resetted or start a grace period when it should not be started.</p>
+<p><strong>Recommendation:</strong></p>
+<p>Badger should remove the function and move the logic of it directly inside <code>syncGlobalAccountingAndGracePeriod</code> (the only function that is directly calling it).</p>
+<p>External entities that want to only synchronize the grace period should be allowed to do so only via the execution of <code>syncGlobalAccountingAndGracePeriod</code>.</p>
+<p><strong>BadgerDao:</strong> Addressed in <a href="https://github.com/ebtc-protocol/ebtc/pull/667">PR 667</a>.</p>
+<p><strong>Cantina:</strong> The recommendations have been correctly implemented in <a href="https://github.com/ebtc-protocol/ebtc/pull/667">PR 667</a>.</p>
+<p><strong>BadgerDAO:</strong> Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/rayeaster">
+              rayeaster
+            </a>
+            <time>9/29/2023</time>
+          </div>
+          <div class="body"><p>PR is here <a href="https://github.com/Badger-Finance/ebtc/pull/667">https://github.com/Badger-Finance/ebtc/pull/667</a></p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>9/29/2023</time>
+          </div>
+          <div class="body"><p>The recommendations have been correctly implemented in the PR <a href="https://github.com/Badger-Finance/ebtc/pull/667">https://github.com/Badger-Finance/ebtc/pull/667</a></p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

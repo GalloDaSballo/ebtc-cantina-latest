@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>Governance can to end or extend the grace period even when a grace period is already ongoing</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/30">cantinasec/review-badgerdao#30</a></span>
+        </p>
+        <h1>Governance can to end or extend the grace period even when a grace period is already ongoing</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>9/24/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/CdpManagerStorage.sol#L112-L124">CdpManagerStorage.sol#L112-L124</a></p>
+<p><strong>Description:</strong></p>
+<p>The <code>setGracePeriod</code> function allows an authed user to update the <code>recoveryModeGracePeriod</code> state variables that directly influence in real time the status of the grace period.</p>
+<p>By allowing the user to change the duration of the grace period even when a grace period has already started, it allows the authed user to end the grace period earlier than expected or extend it more than it was expected once triggered.</p>
+<ul>
+<li>Scenario 1: <code>recoveryModeGracePeriod = 60 minutes</code>, <code>lastGracePeriodStartTimestamp = 30 minutes ago</code>. If <code>setGracePeriod(5 minutes)</code> is executed, it allows the authed user to end the ongoing grace period before expected.</li>
+<li>Scenario 2: <code>recoveryModeGracePeriod = 60 minutes</code>, <code>lastGracePeriodStartTimestamp = 59 minutes ago</code>. If <code>setGracePeriod(200 minutes)</code> is executed, it allows the authed user to extend the ongoing grace period even if it would have ended in <code>1 minute</code>.</li>
+</ul>
+<p><strong>Recommendation:</strong></p>
+<p>If Badger considers the behavior correct, it should:</p>
+<ol>
+<li>document this behavior in the <code>setGracePeriod</code> natspec documentation</li>
+<li>document this behavior on their website/UI to let the user know of this possibility</li>
+</ol>
+<p>If this behavior is not expected and there is an ongoing grace period event, the <code>newGracePeriod</code> duration should be saved in a temporary state variable and used only once the current grace period is ended (in order to not directly influence the ongoing grace period duration).
+If no grace period has started yet but would be triggered by <code>syncGlobalAccountingAndGracePeriod</code>executed in <code>setGracePeriod</code>, Badger should probably consider updating <code>recoveryModeGracePeriod</code> before executing <code>syncGlobalAccountingAndGracePeriod</code> that otherwise would trigger the new grace period with the &quot;old&quot; duration.</p>
+<p><strong>BadgerDao:</strong> I believe we should acknowledge this as it&#39;s a race condition that requires multiple external scenarios to happen.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>10/2/2023</time>
+          </div>
+          <div class="body"><p>I believe we should ack this as it&#39;s a race condition that requires multiple external scenarios to happen</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>10/3/2023</time>
+          </div>
+          <div class="body"><p>Ack</p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

@@ -1,0 +1,197 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>Refactor `LiquidationSequencer` to save gas and be more readable</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/34">cantinasec/review-badgerdao#34</a></span>
+        </p>
+        <h1>Refactor `LiquidationSequencer` to save gas and be more readable</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>9/26/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/LiquidationSequencer.sol">LiquidationSequencer.sol</a></p>
+<p><strong>Description:</strong></p>
+<p>The <code>LiquidationSequencer</code> contract can be refactored to save gas and be more readable.  Before the refactoring (or at least keep them in mind), Badger should first solve the issues that have been already reported:</p>
+<ul>
+<li><a href="https://github.com/cantinasec/review-badgerdao/issues/32">&quot;The liquidation logic is not always using the same requirement when the system is in RM&quot;</a>.</li>
+<li><a href="https://github.com/cantinasec/review-badgerdao/issues/27">&quot;<code>LiquidationSequencer</code> is not synchronizing the platform when calculating the list of CDP&quot;</a>.</li>
+</ul>
+<ol>
+<li>Avoid re-calculatin the <code>TCR</code>.</li>
+</ol>
+<p>The <code>TCR</code> of the system is already calculated inside <code>sequenceLiqToBatchLiqWithPrice</code> but it&#39;s also later re-calculated by <code>_sequenceLiqToBatchLiq</code> (that is only called by <code>sequenceLiqToBatchLiqWithPrice</code>).</p>
+<p>The value returned by <code>_getTCRWithSystemDebtAndCollShares</code> and <code>cdpManager.getTCR(_price)</code> is the same, given that <code>getTCR</code> will internally call <code>_getTCRWithSystemDebtAndCollShares</code>.</p>
+<p>It would make sense to re-calculate each time the <code>TCR</code> if the contract was simulating the consequence (and the increase of TCR) of a liquidation, but that&#39;s not the case.</p>
+<ol start="2">
+<li>Refactor the two for-loops of <code>_sequenceLiqToBatchLiq</code>.</li>
+</ol>
+<p>90% of the code inside those two for loops is the same, and such logic could be moved to common functions that will be called by the loops. Such a refactor would make the code much more readable.</p>
+<ol start="3">
+<li>Consider breaking early in the first for-loop of <code>_sequenceLiqToBatchLiq</code> if a CDP is not liquidable because of its ICR or because of RM and Grace Period.</li>
+</ol>
+<p>If a CDP cannot be liquidated because of its <code>ICR</code> and the sorted list is correctly sorted, it means that the &quot;getPrev()&quot; (with higher <code>ICR</code>) won&#39;t be liquidable too, and the next &quot;getPrev()&quot; CDP won&#39;t be and so on. Badger should consider breaking the loop early instead of keeping iterating until the reach <code>i &lt; _n &amp;&amp; _cdpId != _first</code> condition.</p>
+<ol start="4">
+<li>Consider removing the <code>_cdpStatus == 1</code> check.</li>
+</ol>
+<p>Theoretically, the <code>sortedCdps</code> list should only include <strong>active</strong> CDPs, if a non-active CDP is in that list it means that something is wrong in the overall implementation of the protocol. Badger should consider verifying such statement and remove the check.</p>
+<ol start="5">
+<li>Consider refactoring the whole second for-loop in <code>_sequenceLiqToBatchLiq</code>.</li>
+</ol>
+<p>If the <code>sortedCdps</code> list is correctly sorted, and it does not contain any non-active CDP (like it should), the second for-loop of the function should only iterate to add the CDPs to the <code>_array</code> array.</p>
+<ol start="6">
+<li>Consider refactoring the <code>constructor</code> to only receive the <code>_cdpManagerAddress</code> address and retrieve all the other addresses (<code>activePool</code>, <code>priceFeed</code>, <code>collateralAddress</code>, <code>sortedCdps</code>) by querying directly the <code>cdpManager</code>.</li>
+</ol>
+<p><strong>Recommendation:</strong> Badger should consider applying the suggestions provided in the Description part of the issue.</p>
+<p><strong>Important Note:</strong> Many of those suggestions rely on the strong hypothesis that the <code>sortedCdps</code> list is correctly sorted and does not contain non-active CDPs.</p>
+<p><strong>BadgerDao:</strong> Please check <a href="https://github.com/ebtc-protocol/ebtc/pull/653">PR 653</a> for this optimization as suggested.</p>
+<p><strong>Cantina:</strong> The code seems good (from the logic prospective) but I can make the following notes:</p>
+<ol>
+<li><code>_canLiquidateInCurrentMode</code> function can be removed, and the code integrated directly into <code>_checkCdpLiquidability</code>. The logic is tiny and easy to read and is only called by <code>_checkCdpLiquidability</code>. I think that calling functions (because of the jump and so on) introduces gas overhead.</li>
+<li><code>_recoveryMode</code> can be pre-computed directly in <code>_sequenceLiqToBatchLiq</code>. That value (given that you do not influence TCR by actually liquidating the CDP) won&#39;t change, and you can avoid to re-calculate it each time.</li>
+<li>I would say that you can further simplify the logic by doing:<ul>
+<li>First loop check which is the higher ICR CDP to be liquidated, and you return the iterations done. After that CDP, all the other CDPs can&#39;t be liquidated (for the current state of the protocol).</li>
+<li>The second loop just iterates CDPs from zero for X iterations (where X is the value returned by the first loop).</li>
+</ul>
+</li>
+<li>Suggestion: does it make sense to have a different flavor of the function where you specify both the <code>_n</code> parameter and the <code>cdpStartIdx</code> from where you want to start liquidating? For example: I would like to liquidate 10 CDPs starting from (included) the CDP with id XYZ.</li>
+</ol>
+<p><strong>Important Note:</strong> As I mentioned previously, all of this logic only works <strong>if and only if</strong> the <code>sortedCdps</code> contains <strong>correctly sorted</strong> CDPs and <strong>active</strong> CDPs (something that should be true for a correct functioning of the protocol).</p>
+<p><strong>BadgerDAO:</strong></p>
+<ul>
+<li><code>LeverageMacro*</code> and <code>SimplifiedDiamondLike</code> will be handled by the related <a href="https://github.com/Badger-Finance/ebtc/pull/654">PR 654</a>.</li>
+<li>Discussion <a href="https://github.com/cantinasec/review-badgerdao/discussions/2"><code>stETH</code> share historical value</a> is fixed as suggested.</li>
+<li><code>BorrowerOperations</code> is fixed as suggested by setting the iteration upper bound of the second iteration as the returned value from the first iteration.</li>
+<li><code>CdpManager</code> might be a interesting feature and I suggest to address it in a dedicated separate task if necessary.</li>
+</ul>
+<p>Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/rayeaster">
+              rayeaster
+            </a>
+            <time>9/26/2023</time>
+          </div>
+          <div class="body"><p>please check following PR for this optimization as suggested </p>
+<p><a href="https://github.com/Badger-Finance/ebtc/pull/653">https://github.com/Badger-Finance/ebtc/pull/653</a></p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>9/26/2023</time>
+          </div>
+          <div class="body"><p>The code seems good (from the logic prospective) but I can make the following notes:</p>
+<ol>
+<li><code>_canLiquidateInCurrentMode</code> function can be removed, and the code integrated directly into <code>_checkCdpLiquidability</code>. The logic is tiny and easy to read and is only called by <code>_checkCdpLiquidability</code>. I think that calling functions (because of the jump and so on) introduces gas overhead.</li>
+<li><code>_recoveryMode</code> can be pre-computed directly in <code>_sequenceLiqToBatchLiq</code>. That value (given that you do not influence TCR by actually liquidating the CDP) won&#39;t change, and you can avoid to re-calculate it each time</li>
+<li>I would say that you can further simplify the logic by doing<ul>
+<li>First loop check which is the higher ICR CDP to be liquidated, and you return the iterations done. After that CDP, all the other CDPs can&#39;t be liquidated (for the current state of the protocol)</li>
+<li>The second loop just iterates CDPs from zero for X iterations (where X is the value returned by the first loop)</li>
+</ul>
+</li>
+<li>Suggestion: does it make sense to have a different flavor of the function where you specify both the <code>_n</code> parameter and the <code>cdpStartIdx</code> from where you want to start liquidating? For example: I would like to liquidate 10 CDPs starting from (included) the CDP with id XYZ</li>
+</ol>
+<p>⚠️ As I mentioned previously, all of this logic only works <strong>if and only if</strong> the <code>sortedCdps</code> contains <strong>correctly sorted</strong> CDPs and <strong>active</strong> CDPs (something that should be true for a correct functioning of the protocol)</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/rayeaster">
+              rayeaster
+            </a>
+            <time>9/27/2023</time>
+          </div>
+          <div class="body"><p>@StErMi PR is updated with respect to your notes. </p>
+<p>Note #1 will be handled by another related PR <a href="https://github.com/Badger-Finance/ebtc/pull/654/files#diff-307f35bf6928957226c09fdb313749bb5c94edea6f623f9860b92a83c211322b">https://github.com/Badger-Finance/ebtc/pull/654/files#diff-307f35bf6928957226c09fdb313749bb5c94edea6f623f9860b92a83c211322b</a>
+Note #2 is fixed as suggested
+Note #3 is fixed as suggested by setting the iteration upper bound of the second iteration as the returned value from the first iteration
+Note #4 might be a interesting feature and I suggest to address it in a dedicated separate task if necessary</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>9/27/2023</time>
+          </div>
+          <div class="body"><p>I&#39;ll wait for the final merge to review the whole code</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>9/27/2023</time>
+          </div>
+          <div class="body"><p>@rayeaster I have added another point to the issue (see point 6) where I suggest a refactor of the <code>constructor</code>. All the addresses that you are passing to the constructor can be retrieved by querying directly the <code>cdpManager</code>. </p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">
+              dmitriia
+            </a>
+            <time>9/28/2023</time>
+          </div>
+          <div class="body"><p>There are optimization possibilities for <code>_sequenceLiqToBatchLiq</code> <a href="https://github.com/spearbit-audits/review-badgerdao/pull/4/files#r1259014036">outlined in the previous review</a>, they are still relevant as far as I see.</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/rayeaster">
+              rayeaster
+            </a>
+            <time>9/28/2023</time>
+          </div>
+          <div class="body"><blockquote>
+<p>@rayeaster I have added another point to the issue (see point 6) where I suggest a refactor of the <code>constructor</code>. All the addresses that you are passing to the constructor can be retrieved by querying directly the <code>cdpManager</code>.</p>
+</blockquote>
+<p>@dapp-whisperer what is your opinion on this topic? Thought current constructor implementation with all related dependent addresses passed in as separate arguments is a consistent match with what we use for other contracts using <code>EBTCDeployer</code>.</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/luksgrin">
+              luksgrin
+            </a>
+            <time>10/31/2023</time>
+          </div>
+          <div class="body"><p>Will be marked as gas optimization only, for the report</p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

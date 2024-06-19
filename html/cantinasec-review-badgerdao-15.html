@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>Replace `.transfer`, `.transferFrom` and `.approve` with the corresponding ERC20 "safe" version of them</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/15">cantinasec/review-badgerdao#15</a></span>
+        </p>
+        <h1>Replace `.transfer`, `.transferFrom` and `.approve` with the corresponding ERC20 "safe" version of them</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>8/10/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroBase.sol#L226">LeverageMacroBase.sol#L226</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroBase.sol#L395-L398">LeverageMacroBase.sol#L395-L398</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroBase.sol#L417">LeverageMacroBase.sol#L417</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroReference.sol#L40-L41">LeverageMacroReference.sol#L40-L41</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/BorrowerOperations.sol#L533">BorrowerOperations.sol#L533</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/ActivePool.sol#L276">ActivePool.sol#L276</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/ActivePool.sol#L285">ActivePool.sol#L285</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/ActivePool.sol#L288">ActivePool.sol#L288</a></p>
+<p><strong>Description:</strong> While it&#39;s true that <code>stETH</code> is following the <code>ERC20</code> standard and the <code>approve</code>, <code>transfer</code> and <code>transferFrom</code> on their token always returns <code>true</code> or reverts it&#39;s recommended to anyway, use the corresponding &quot;safe&quot; version of those function to be bullet-proof for the future. Lido could decide at some point to upgrade their <code>stETH</code> token to an implementation that does not follow the <code>ERC20</code> standard anymore.</p>
+<p>The suggestion is even more highly recommended when such operations are performed on an external and arbitrary <code>ERC20</code> token.</p>
+<p>Note that the current implementation of <code>stETH</code> <code>.transferShares</code> and <code>.transferSharesFrom</code> do not return <code>bool</code> value, but instead the amount of <code>stETH</code> tokens that have been moved from the <code>sender</code> to the <code>recipient</code> account.</p>
+<p><strong>Recommendation:</strong> BadgerDAO should consider replacing the <code>.transfer</code>, <code>.transferFrom</code> and <code>.approve</code> calls with the corresponding ERC20 &quot;safe&quot; version of them.</p>
+<p><strong>BadgerDAO:</strong> Fixed in <code>LeverageProxy</code> (see <a href="https://github.com/ebtc-protocol/ebtc/pull/565">PR 565</a>), but acknowledge the rest. Will follow up. Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body"><p><a href="https://github.com/Badger-Finance/ebtc/pull/565">https://github.com/Badger-Finance/ebtc/pull/565</a></p>
+<p>Fixed in LeverageProxy but ack in rest, will follow up</p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

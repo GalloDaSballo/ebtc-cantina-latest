@@ -1,0 +1,145 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>Do not allow the `LeverageMacroBase` to override the `approval` for `eBTC/stETH` during the `_doSwap` execution</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/25">cantinasec/review-badgerdao#25</a></span>
+        </p>
+        <h1>Do not allow the `LeverageMacroBase` to override the `approval` for `eBTC/stETH` during the `_doSwap` execution</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroBase.sol#L395-L398">LeverageMacroBase.sol#L395-L398</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroBase.sol#L417">LeverageMacroBase.sol#L417</a></p>
+<p><strong>Description:</strong> The <code>LeverageMacroReference</code> contracts that inherits from <code>LeverageMacroBase</code> executes some crucial approvals to allow the contract to repay the flashloan operations:</p>
+<pre><code class="language-solidity">// set allowance for flashloan lender/CDP open
+ebtcToken.approve(_borrowerOperationsAddress, type(uint256).max);
+stETH.approve(_borrowerOperationsAddress, type(uint256).max);
+stETH.approve(_activePool, type(uint256).max);
+</code></pre>
+<p>Those approvals are done once and cannot be re-done by the <code>LeverageMacroReference</code>. </p>
+<p>The <code>LeverageMacroBase._doSwap</code> allows the caller to specify both an arbitrary <code>tokenForSwap</code> token, <code>addressForApprove</code> address and <code>exactApproveAmount</code> that could allow the caller to override those approvals done during the <code>LeverageMacroReference</code> constructor.</p>
+<p>If such an event happens, the <code>LeverageMacroReference</code> contract would not be able to repay any flashloan operation. Given that there is no way to re-do those initial approvals and that the flashloan operation is a hard requirement for the <code>doOperation</code> execution, it would mean that the <code>LeverageMacroReference</code> would probably not be able to execute any operation that involves the overridden token approval.</p>
+<p><strong>Recommendation:</strong> BadgerDAO should consider reverting the <code>_doSwap</code> operation when</p>
+<ul>
+<li><code>tokenForSwap == ebtcToken</code> and <code>addressForApprove == borrowerOperationsAddress</code>.</li>
+<li><code>tokenForSwap == stETH</code> and <code>addressForApprove == borrowerOperationsAddress</code>.</li>
+<li><code>tokenForSwap == stETH</code> and <code>addressForApprove == activePool</code>.</li>
+</ul>
+<p><strong>BadgerDao:</strong> Thinking this could be solved by granting temporary allowance just to repay the flashloan.</p>
+<p><strong>Cantina:</strong> It could be an option which probably would be more security proof compared to giving max allowance.
+The approval should be done <strong>after</strong> the execution of <code>_handleOperation</code> in <code>onFlashLoan</code> so you know for sure that any &quot;custom&quot; approval done by the <code>_doSwaps</code> in <code>_handleOperation</code> does not override the one done during the flashloan to repay the flashloan as soon as the context move back to <code>BorrowOperations</code> or <code>ActivePool</code>.</p>
+<p>Probably <code>_openCdpCallback</code>, <code>_closeCdpCallback</code> and <code>_adjustCdpCallback</code> have to also do custom approvals with the needed amounts of <code>eBTC</code> and <code>stETH</code> to perform the operation.</p>
+<p>To recap; it could make sense but:</p>
+<ol>
+<li>you are going to increase gas for FL and eBTC interaction (open, adjust, close) because you have more calls to <code>approve</code>.</li>
+<li>probably it would need <code>approve(0)</code> at least for <code>stETH</code> because of rounding down after the transfer? (see <a href="https://github.com/lidofinance/lido-dao/issues/442">lido&#39;s &quot;Account&#39;s stETH balance getting lower on 1 or 2 wei due to rounding down integer math&quot; issue</a>).</li>
+</ol>
+<p><strong>BadgerDao:</strong> Wouldn&#39;t you agree with adding the approvals here at the end of <code>onFlashLoan</code>? We&#39;d have the exact amount (amount + fee) to approve and it&#39;s always executed at the end of the Flashloan.</p>
+<p>Opted to add a simple function to reset approvals in the <code>LeverageMacroReference </code> (see <a href="https://github.com/ebtc-protocol/ebtc/pull/579">PR 579</a>).</p>
+<p>Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/14/2023</time>
+          </div>
+          <div class="body"><p>Thinking this could be solved by granting temporary allowance just to repay the flashloan</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>8/15/2023</time>
+          </div>
+          <div class="body"><blockquote>
+<p>Thinking this could be solved by granting temporary allowance just to repay the flashloan</p>
+</blockquote>
+<p>It could be an option which probably would be more security proof compared to giving max allowance.
+The approval should be done <strong>after</strong> the execution of <code>_handleOperation</code> in <code>onFlashLoan</code> so you know for sure that any &quot;custom&quot; approval done by the <code>_doSwaps</code> in <code>_handleOperation</code> does not override the one done during the flashloan to repay the flashloan as soon as the context move back to <code>BorrowOperations</code> or <code>ActivePool</code>.</p>
+<p>Probably <code>_openCdpCallback</code>, <code>_closeCdpCallback</code> and <code>_adjustCdpCallback</code> have to also do custom approvals with the needed amounts of <code>eBTC</code> and <code>stETH</code> to perform the operation.</p>
+<p>To recap: it could make sense but </p>
+<ol>
+<li>you are going to increase gas for FL and eBTC interaction (open, adjust, close) because you have more calls to <code>approve</code></li>
+<li>probably it would need <code>approve(0)</code> at least for <code>stETH</code> because of rounding down after the transfer? (see <a href="https://github.com/lidofinance/lido-dao/issues/442">https://github.com/lidofinance/lido-dao/issues/442</a>)</li>
+</ol>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/15/2023</time>
+          </div>
+          <div class="body"><img width="683" alt="Screenshot 2023-08-15 at 19 15 28" src="https://github.com/cantinasec/review-badgerdao/assets/13383782/e379fe29-544c-4762-a696-8ac1d1f40d57">
+
+<p>@StErMi wouldn&#39;t you agree with adding the approvals here at the end of <code>onFlashLoan</code>?
+We&#39;d have the exact amount (amount + fee) to approve and it&#39;s always executed at the end of the Flashloan</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/15/2023</time>
+          </div>
+          <div class="body"><p>I guess we could also add approvals before each operation as well</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/15/2023</time>
+          </div>
+          <div class="body"><p>We could also just add a &quot;reset approvals&quot; function just in case</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/16/2023</time>
+          </div>
+          <div class="body"><p>Opted to add a simple function to reset approvals in the LeverageMacroReference
+<a href="https://github.com/Badger-Finance/ebtc/pull/579">https://github.com/Badger-Finance/ebtc/pull/579</a></p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

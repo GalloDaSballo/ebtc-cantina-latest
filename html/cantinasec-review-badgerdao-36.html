@@ -1,0 +1,166 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>Consider refactoring `SortedCdps._getCdpsOf` to simply the code and save gas</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/36">cantinasec/review-badgerdao#36</a></span>
+        </p>
+        <h1>Consider refactoring `SortedCdps._getCdpsOf` to simply the code and save gas</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>9/26/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/SortedCdps.sol#L247-L249">SortedCdps.sol#L247-L249</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/SortedCdps.sol#L274-L282">SortedCdps.sol#L274-L282</a></p>
+<p><strong>Description:</strong></p>
+<p>The <code>_getCdpsOf(address owner, bytes32 startNodeId, uint maxNodes, uint maxArraySize)</code> internal function can only be called by <code>getCdpsOf(address owner)</code> and <code>function getCdpsOf(address owner, bytes32 startNodeId, uint maxNodes)</code> that have the following code:</p>
+<pre><code class="language-solidity">function getCdpsOf(address owner) external view override returns (bytes32[] memory) {
+    uint _ownedCount = _cdpCountOf(owner, dummyId, 0);
+    return _getCdpsOf(owner, dummyId, 0, _ownedCount);
+}
+
+function getCdpsOf(
+    address owner,
+    bytes32 startNodeId,
+    uint maxNodes
+) external view override returns (bytes32[] memory) {
+    uint _ownedCount = _cdpCountOf(owner, startNodeId, maxNodes);
+    return _getCdpsOf(owner, startNodeId, maxNodes, _ownedCount);
+}
+</code></pre>
+<p>The <code>owner</code>, <code>startNodeId</code> and <code>maxNodes</code> parameters value are the same passed to both the <code>_cdpCountOf</code> and <code>_getCdpsOf</code> functions:</p>
+<ul>
+<li><code>owner</code> is the owner of the CDPs.</li>
+<li><code>startNodeId</code> is the CDP ID from which it needs to start iterating from (in a pagination logic it can be seen as the <code>offset</code> concept).</li>
+<li><code>maxNodes</code> is the max number of iterations that the logic should do on the list (in a pagination logic it can be seen as the <code>limit</code> concept).</li>
+</ul>
+<p>The <code>_cdpCountOf</code> function iterates over the list starting from <code>startNodeId</code> and iterates at max <code>maxNodes</code> times. It will return the number of CDPs owned by the <code>onwer</code> parameter.</p>
+<p>Because the parameters passed to those functions are the same and because they iterate over the same &quot;slice&quot; of the list and for the same max number of iterations: </p>
+<ul>
+<li><code>maxArraySize</code> will always be <code>&lt;= maxNodes</code> (you cannot find more matches than the number of iterations). This will always be true when <code>maxNodes &gt; 0</code>.</li>
+<li><code>_cdpRetrieved</code> will always be equal to <code>maxArraySize</code>.</li>
+</ul>
+<p>Because of this, the <code>_getCdpsOf</code> logic can be simplified as following:</p>
+<pre><code class="language-diff">  function _getCdpsOf(
+      address owner,
+      bytes32 startNodeId,
+      uint maxNodes,
+      uint maxArraySize
+  ) internal view returns (bytes32[] memory) {
+      if (maxArraySize == 0) {
+          return new bytes32[](0);
+      }
+
+      // Two-pass strategy, halving the amount of Cdps we can process before relying on pagination or off-chain methods
+-     bytes32[] memory userCdps = new bytes32[](
+-        (maxNodes &gt; 0 &amp;&amp; maxNodes &lt; maxArraySize) ? maxNodes : maxArraySize
+-     );
++     bytes32[] memory userCdps = new bytes32[](maxArraySize);
+
+      uint i = 0;
+      uint _cdpRetrieved;
+
+      // walk the list, until we get to the index
+      // start at the given node or from the tail of list
+      bytes32 _currentCdpId = (startNodeId == dummyId ? data.tail : startNodeId);
+
+      while (_currentCdpId != dummyId) {
+          // if the current Cdp is owned by specified owner
+          if (getOwnerAddress(_currentCdpId) == owner) {
+              userCdps[_cdpRetrieved] = _currentCdpId;
+              ++_cdpRetrieved;
+          }
+          ++i;
+
+          // move to the next Cdp in the list
+          _currentCdpId = data.nodes[_currentCdpId].prevId;
+
+          // cut the run if we exceed expected iterations through the loop
+          if (maxNodes &gt; 0 &amp;&amp; i &gt;= maxNodes) {
+              break;
+          }
+      }
+
+      // if CDP number retrieved not equal to expected then we make a new copy
+-     if (_cdpRetrieved &gt; 0 &amp;&amp; _cdpRetrieved != userCdps.length) {
+-         bytes32[] memory _copyUserCdps = new bytes32[](_cdpRetrieved);
+-         for (uint i = 0; i &lt; _cdpRetrieved; ++i) {
+-             require(userCdps[i] != dummyId, &quot;SortedCdps: invalid CDP retrieved by getCdpsOf()&quot;);
+-             _copyUserCdps[i] = userCdps[i];
+-         }
+-         userCdps = _copyUserCdps;
+-     }
+
+      return userCdps;
+  }
+</code></pre>
+<p>Note that <code>_cdpRetrieved</code> can&#39;t be equal to <code>0</code> because for that to be true it would mean that <code>maxArraySize</code> have to be equal to zero. This case is already handled in the very first check performed by <code>_getCdpsOf</code>.</p>
+<p><strong>Recommendation:</strong> Badger should consider:</p>
+<ul>
+<li>Reviewing and simplifying the code of the <code>SortedCdps_getCdpsOf</code> function.</li>
+<li>Adding more test and fuzzing tests to validate the proposed refactoring and possible edge cases.</li>
+<li>replacing all the <code>uint</code> types with the <code>uint256</code> to adhere to the Solidity Style guide.</li>
+</ul>
+<p><strong>BadgerDao:</strong> Fixed as suggested in <a href="https://github.com/Badger-Finance/ebtc/pull/658">PR 658</a>.</p>
+<p><strong>Cantina:</strong> The recommendations have been implemented in <a href="https://github.com/Badger-Finance/ebtc/pull/658">PR 658</a>.</p>
+<p><strong>BadgerDAO:</strong> Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/rayeaster">
+              rayeaster
+            </a>
+            <time>9/27/2023</time>
+          </div>
+          <div class="body"><p>fixed as suggested in PR <a href="https://github.com/Badger-Finance/ebtc/pull/658">https://github.com/Badger-Finance/ebtc/pull/658</a></p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>9/27/2023</time>
+          </div>
+          <div class="body"><p>The recommendations have been implemented in the PR <a href="https://github.com/Badger-Finance/ebtc/pull/658">https://github.com/Badger-Finance/ebtc/pull/658</a></p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/luksgrin">
+              luksgrin
+            </a>
+            <time>10/31/2023</time>
+          </div>
+          <div class="body"><p>For the report, will mark as gas optimisation and remove the informational tag</p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

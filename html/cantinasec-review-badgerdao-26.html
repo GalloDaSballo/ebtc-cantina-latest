@@ -1,0 +1,224 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>[BCCR] Many TCR increasing operations will be blocked when TCR is between 125 and 135</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/26">cantinasec/review-badgerdao#26</a></span>
+        </p>
+        <h1>[BCCR] Many TCR increasing operations will be blocked when TCR is between 125 and 135</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">dmitriia</a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/46f8df604fe7e8b57cb0ac5ec2aca7530e87bfe0/packages/contracts/contracts/BorrowerOperations.sol#404">BorrowerOperations.sol#L404</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/46f8df604fe7e8b57cb0ac5ec2aca7530e87bfe0/packages/contracts/contracts/BorrowerOperations.sol#L650">BorrowerOperations.sol#L650</a></p>
+<p><strong>Description:</strong> It looks like after BCCR introduction some healthy TCR increasing openings and adjustments are now blocked.</p>
+<p>If <code>oldTCR &lt; newTCR</code>, but <code>ICR &lt;= BCCR</code>, the operation can be denied if <code>TCR &lt; BCCR</code>: </p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/46f8df604fe7e8b57cb0ac5ec2aca7530e87bfe0/packages/contracts/contracts/BorrowerOperations.sol#L398-L413">BorrowerOperations.sol#L398-L413</a></li>
+</ul>
+<pre><code class="language-solidity">if (isRecoveryMode) {
+    _requireICRisAboveCCR(vars.ICR);
+} else {
+    _requireICRisAboveMCR(vars.ICR);
+    uint newTCR = _getNewTCRFromCdpChange(vars.netColl, true, vars.debt, true, vars.price); // bools: coll increase, debt increase
+    // See line below
+    if (vars.ICR &lt;= BUFFERED_CCR) {
+        // Any open CDP is a debt increase so this check is safe
+
+        // If you&#39;re dragging TCR toward buffer or RM, we add an extra check for TCR
+        // Which forces you to raise TCR to 135+
+        _requireNewTCRisAboveBufferedCCR(newTCR);
+    } else {
+        _requireNewTCRisAboveCCR(newTCR);
+    }
+}
+</code></pre>
+<p>Similarly, when it&#39;s ICR increasing collateral withdrawal coupled with debt repayment, or debt increasing coupled with collateral posting, i.e. when one adjusts, making position less risky in the process, it will be blocked when <code>newTCR &lt; BCCR</code>: </p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/46f8df604fe7e8b57cb0ac5ec2aca7530e87bfe0/packages/contracts/contracts/BorrowerOperations.sol#L634-L660">BorrowerOperations.sol#L634-L660</a></li>
+</ul>
+<pre><code class="language-solidity">if (_isRecoveryMode) {
+    // ...
+} else {
+    // if Normal Mode
+    _requireICRisAboveMCR(_vars.newICR);
+    _vars.newTCR = _getNewTCRFromCdpChange(
+        // ...
+    );
+       // See line below
+    if ((_isDebtIncrease || _collWithdrawal &gt; 0) &amp;&amp; _vars.newICR &lt;= BUFFERED_CCR) {
+        // Adding debt or reducing coll has negative impact on TCR, do a stricter check
+
+        // If you&#39;re dragging TCR toward buffer or RM, we add an extra check for TCR
+        // Which forces you to raise TCR to 135+
+        _requireNewTCRisAboveBufferedCCR(_vars.newTCR);
+    } else {
+        // Other cases have a laxer check
+        _requireNewTCRisAboveCCR(_vars.newTCR);
+    }
+}
+</code></pre>
+<p>Note, error message in these cases will incorrectly say about <em>TCR decreasing</em>:</p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/46f8df604fe7e8b57cb0ac5ec2aca7530e87bfe0/packages/contracts/contracts/BorrowerOperations.sol#L670-L675">BorrowerOperations.sol#L670-L675</a></li>
+</ul>
+<pre><code class="language-solidity">function _requireNewTCRisAboveBufferedCCR(uint _newTCR) internal pure {
+    require(
+        _newTCR &gt;= BUFFERED_CCR,
+        // See line below
+        &quot;BorrowerOps: A TCR decreasing operation that would result in TCR &lt; BUFFERED_CCR is not permitted&quot;
+    );
+}
+</code></pre>
+<p>Previous to BCCR introduction this was true as both checks happen in non-RM state and if now it&#39;s RM the TCR has to be decreased indeed. But once logic becomes 2-tiered it not the case.</p>
+<p>It looks like both conditions should involve <code>&amp;&amp; newTCR &lt; oldTCR</code>, as if it&#39;s not then nothing bad is happening, the system health increases, just not by that much that it&#39;s desired, but it might be impossible to achieve for small CDPs in big TVL conditions, which isn&#39;t a good reason to block those as system health would have strictly improved.</p>
+<p>Impact: many CPD opening and, mostly importantly, CDP adjustment operations that makes the system healthier by increasing TCR will be denied. This is an issue both from UX perspective and protocol stability as the cumulative impact here is that such operations, mostly coming from small CDPs (which will constitute the bigger percentage of all accounts over time along with TVL growth) will not be carried out, so there will be a downward pressure on TCR compared to the situation before the change. I.e. some operations will be carried over with bigger funds brought in, but this will be less and less possible for an average CDP owner over time, and the bigger share of operations will be just cancelled. This will result in lower TCR.</p>
+<p>Per high likelihood and medium impact setting the severity to be high.</p>
+<p><strong>Recommendation:</strong> Consider requiring the BCCR only when where was a decrease of TCR as a result of the operation, which was the initial rationale for buffer introduction, for example:</p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/46f8df604fe7e8b57cb0ac5ec2aca7530e87bfe0/packages/contracts/contracts/BorrowerOperations.sol#L375-L413">BorrowerOperations.sol#L375-L413</a></li>
+</ul>
+<pre><code class="language-diff">- bool isRecoveryMode = _checkRecoveryModeForTCR(_getTCR(vars.price));
++ uint oldTCR = _getTCR(vars.price);
++ bool isRecoveryMode = _checkRecoveryModeForTCR(oldTCR);
+
+  vars.debt = _EBTCAmount;
+
+  // Sanity check
+  require(vars.netColl &gt; 0, &quot;BorrowerOperations: zero collateral for openCdp()!&quot;);
+
+  uint _netCollAsShares = collateral.getSharesByPooledEth(vars.netColl);
+  uint _liquidatorRewardShares = collateral.getSharesByPooledEth(LIQUIDATOR_REWARD);
+
+  // ICR is based on the net coll, i.e. the requested coll amount - fixed liquidator incentive gas comp.
+  vars.ICR = LiquityMath._computeCR(vars.netColl, vars.debt, vars.price);
+
+  // NICR uses shares to normalize NICR across CDPs opened at different pooled ETH / shares ratios
+  vars.NICR = LiquityMath._computeNominalCR(_netCollAsShares, vars.debt);
+
+  /**
+      In recovery move, ICR must be greater than CCR
+      CCR &gt; MCR (125% vs 110%)
+
+      In normal mode, ICR must be greater thatn MCR
+      Additionally, the new system TCR after the CDPs addition must be &gt;CCR
+  */
+  if (isRecoveryMode) {
+      _requireICRisAboveCCR(vars.ICR);
+  } else {
+      _requireICRisAboveMCR(vars.ICR);
+      uint newTCR = _getNewTCRFromCdpChange(vars.netColl, true, vars.debt, true, vars.price); // bools: coll increase, debt increase
+
+-     if (vars.ICR &lt;= BUFFERED_CCR) {
++     // When new TCR is worse than before, it has to be above the buffer
++     if (vars.ICR &lt;= BUFFERED_CCR &amp;&amp; newTCR &lt; oldTCR) {
+          // Any open CDP is a debt increase so this check is safe
+
+          // If you&#39;re dragging TCR toward buffer or RM, we add an extra check for TCR
+          // Which forces you to raise TCR to 135+
+          _requireNewTCRisAboveBufferedCCR(newTCR);
+      } else {
+          _requireNewTCRisAboveCCR(newTCR);
+      }
+  }
+</code></pre>
+<p>Similarly for <code>_requireValidAdjustmentInCurrentMode()</code>, assuming that <code>_vars.oldTCR</code> was populated before just as above via <code>_vars.oldTCR = _getTCR(vars.price)</code>:</p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/46f8df604fe7e8b57cb0ac5ec2aca7530e87bfe0/packages/contracts/contracts/BorrowerOperations.sol#L634-L660">BorrowerOperations.sol#L634-L660</a></li>
+</ul>
+<pre><code class="language-diff">  if (_isRecoveryMode) {
+      // ...
+  } else {
+      // if Normal Mode
+      _requireICRisAboveMCR(_vars.newICR);
+      _vars.newTCR = _getNewTCRFromCdpChange(
+          // ...
+      );
+-     if ((_isDebtIncrease || _collWithdrawal &gt; 0) &amp;&amp; _vars.newICR &lt;= BUFFERED_CCR) {
++     if ((_isDebtIncrease || _collWithdrawal &gt; 0) &amp;&amp; _vars.newTCR &lt; _vars.oldTCR &amp;&amp; _vars.newICR &lt;= BUFFERED_CCR) {
+          // Adding debt or reducing coll has negative impact on TCR, do a stricter check
+
+          // If you&#39;re dragging TCR toward buffer or RM, we add an extra check for TCR
+          // Which forces you to raise TCR to 135+
+          _requireNewTCRisAboveBufferedCCR(_vars.newTCR);
+      } else {
+          // Other cases have a laxer check
+          _requireNewTCRisAboveCCR(_vars.newTCR);
+      }
+  }
+</code></pre>
+<p><strong>BadgerDao:</strong> Personally not as concerned with this fix being added until the Economic Risks are fully modelled, I think this can make some setups cheaper given issue <a href="https://github.com/cantinasec/review-badgerdao/issues/23">&quot;[BCCR] CDP closing can be used for whale sniping&quot;</a>.</p>
+<p>The change in logic was reverted (see <a href="https://github.com/Badger-Finance/ebtc/blob/1b0a073075484670f24947e0f455031144d3a1e0/packages/contracts/contracts/BorrowerOperations.sol#L790-L846">BorrowerOperations.sol#L790-L846</a>).</p>
+<p><strong>Cantina:</strong> Looks ok.</p>
+<p><strong>BadgerDAO:</strong> Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/16/2023</time>
+          </div>
+          <div class="body"><p>Personally not as concerned with this fix being added until the Economic Risks are fully modelled, I think this can make some setups cheaper given #23</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>9/21/2023</time>
+          </div>
+          <div class="body"><p>The change in logic was reverted</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>9/21/2023</time>
+          </div>
+          <div class="body"><p><a href="https://github.com/Badger-Finance/ebtc/blob/1b0a073075484670f24947e0f455031144d3a1e0/packages/contracts/contracts/BorrowerOperations.sol#L790-L846">https://github.com/Badger-Finance/ebtc/blob/1b0a073075484670f24947e0f455031144d3a1e0/packages/contracts/contracts/BorrowerOperations.sol#L790-L846</a></p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">
+              dmitriia
+            </a>
+            <time>9/21/2023</time>
+          </div>
+          <div class="body"><p>Looks ok</p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

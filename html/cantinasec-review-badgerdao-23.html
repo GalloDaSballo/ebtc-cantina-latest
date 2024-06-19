@@ -1,0 +1,211 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>[BCCR] CDP closing can be used for whale sniping</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/23">cantinasec/review-badgerdao#23</a></span>
+        </p>
+        <h1>[BCCR] CDP closing can be used for whale sniping</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">dmitriia</a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/46f8df604fe7e8b57cb0ac5ec2aca7530e87bfe0/packages/contracts/contracts/BorrowerOperations.sol#L451-L475">BorrowerOperations.sol#L451-L475</a></p>
+<p><strong>Description:</strong> After BCCR introduction on CDP closing only <code>newTCR &gt; CCR</code> is required, a whale sniper like scenario looks to be possible with an attacker preliminary opening two big CDPs (each can be a set of CDPs for granularity): first a <code>good</code> well capitalized one, at <code>goodICR &gt;&gt; BCCR</code>, and then one <code>bad</code>, at <code>badICR = MCR + epsilon1</code>, which is possible as <code>good</code> first one drags TCR up above BCCR.</p>
+<p>Now, on observing any event that decreases the TCR, e.g. slashing (rare) or big enough oracle reading downtick (frequent enough), the attacker can front run the event transaction and remove <code>good</code> CDP (some combination of them), so that <code>newTCR = CCR + epsilon2</code>, and the event transaction triggers RM, which attacker back-runs with target liquidation.</p>
+<p>Overall this requires CDP prepositioning and index/price update transaction sandwiching. Since keeping the said CDPs has low risk, the total cost for the attacker is gas and the cost of the capital involved. It can be viable given big enough expected profit up to <code>10%</code> of the whale collateral.</p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/46f8df604fe7e8b57cb0ac5ec2aca7530e87bfe0/packages/contracts/contracts/BorrowerOperations.sol#L451-L475">BorrowerOperations.sol#L451-L475</a></li>
+</ul>
+<pre><code class="language-solidity">function closeCdp(bytes32 _cdpId) external override {
+    // ...
+
+    uint newTCR = _getNewTCRFromCdpChange(
+        collateral.getPooledEthByShares(coll),
+        false,
+        debt,
+        false,
+        price
+    );
+    // See the line below
+    _requireNewTCRisAboveCCR(newTCR);
+
+    cdpManager.removeStake(_cdpId);
+    // ...
+</code></pre>
+<p>Impact: protocol manipulation in order to liquidate a specific CDP that isn&#39;t liquidatable by itself is possible via <code>closeCdp()</code>.</p>
+<p>Per medium likelihood and high principal funds loss impact for CDP owner setting the severity to be high.</p>
+<p><strong>Recommendation:</strong> Since after BCCR introduction CDP adjusting is controlled at <code>135</code> TCR, while closing is at <code>125</code> TCR anyway (i.e. it&#39;s not a free exit), it might be reasonably to consider controlling it at <code>130</code> as a part of BCCR introduction. I.e. on the one hand it&#39;s not desirable to leave the surface open, on the another adding the very same control as for opening/adjusting might be too tight as closing is both more user sensitive operation and the cost and complexity of the attack is higher in this case.</p>
+<p><strong>BadgerDao:</strong> Agree with the finding, we have mitigated by adding a Grace Period (15 minutes) before allowing Recovery Mode to trigger liquidations (see <a href="https://github.com/ebtc-protocol/ebtc/blob/1b0a073075484670f24947e0f455031144d3a1e0/packages/contracts/contracts/CdpManagerStorage.sol#L21-L124">CdpManagerStorage.sol#L21-L124</a>).</p>
+<p><strong>Cantina:</strong> Overall 15 minutes seems short as the only window for target whale borrower reaction in the whale sniping scenario. In the same time it is the period for which attacker bears the risk, so when this period is short it&#39;s both narrow window for possible target reaction and low enough risk for the attacker.</p>
+<p>On the other hand, since infinite grace period means no liquidations in RM while <code>ICR &gt;= MCR</code>, the max grace period is also due for <code>setGracePeriod()</code>.</p>
+<p>The changes shown in <a href="https://github.com/ebtc-protocol/ebtc/blob/1b0a073075484670f24947e0f455031144d3a1e0/packages/contracts/contracts/CdpManagerStorage.sol#L21-L124">CdpManagerStorage.sol#L21-L124</a> look ok. Somewhat higher lower boundary and an introduction of the upper one are suggested, i.e. the grace period can be bounded to <code>[1 hour, 2 days]</code>, as an example.</p>
+<p><strong>BadgerDAO:</strong> Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/16/2023</time>
+          </div>
+          <div class="body"><h2 id="proper-attack">Proper Attack</h2>
+<pre><code>They can always do it
+
+-&gt; Raise Up (so that they allow it to be safe to raise down)
+-&gt; Raise down (so that it&#39;s at RM + ε)
+</code></pre>
+<p>Example:</p>
+<pre><code class="language-python">SAFE_COLL 300
+SAFE_DEBT 150.0
+risky_coll 770
+risky_debt 700.0
+get_cr(total_coll, total_debt) 125.88235294117646
+To Raise to 135 add:
+Extra Coll for Setup 40 ## This is the extra cost of setup + the capital for attack which is part of the Liquity Model
+</code></pre>
+<h2 id="script">Script</h2>
+<pre><code class="language-python">def get_debt(coll, cr):
+    return coll / cr * 100
+
+def get_cr(coll, debt):
+    return coll / debt * 100
+
+SAFE_COLL = 300
+SAFE_CR = 200
+SAFE_DEBT = get_debt(SAFE_COLL, SAFE_CR)
+print(&quot;SAFE_COLL&quot;, SAFE_COLL)
+print(&quot;SAFE_DEBT&quot;, SAFE_DEBT)
+
+RISKY_CR = 110
+SYSTEM_CR = 126
+BUFFER_CR = 135
+
+def main():
+    total_coll = SAFE_COLL
+    total_debt = SAFE_DEBT
+    risky_coll = 0
+    risky_debt = 0
+
+
+    ## Get attacker CR
+    while get_cr(total_coll, total_debt) &gt; SYSTEM_CR:
+        risky_coll += 10
+        risky_debt = get_debt(risky_coll, RISKY_CR)
+
+        total_coll = SAFE_COLL + risky_coll
+        total_debt = SAFE_DEBT + risky_debt
+
+    print(&quot;risky_coll&quot;, risky_coll)
+    print(&quot;risky_debt&quot;, risky_debt)
+    print(&quot;get_cr(total_coll, total_debt)&quot;, get_cr(total_coll, total_debt))
+
+    print(&quot;To Raise to 135 add:&quot;)
+    ## We allow COLL ONLY
+    ## Just deposit Coll until new CR is 135 instead of 125/126
+    safe_coll = 0
+    while (get_cr(total_coll, total_debt) &lt; BUFFER_CR):
+        safe_coll += 10
+
+        total_coll = total_coll + safe_coll
+    
+    print(&quot;Extra Coll for Setup&quot;, safe_coll)
+
+main()
+</code></pre>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/16/2023</time>
+          </div>
+          <div class="body"><p>The above shows that as demonstrated by the finding the mitigation is insufficient</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>9/21/2023</time>
+          </div>
+          <div class="body"><p>Agree with the finding, we have mitigated by adding a Grace Period (15 minutes) before allowing Recovery Mode to trigger liquidations</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>9/21/2023</time>
+          </div>
+          <div class="body"><p><a href="https://github.com/Badger-Finance/ebtc/blob/1b0a073075484670f24947e0f455031144d3a1e0/packages/contracts/contracts/CdpManagerStorage.sol#L21-L124">https://github.com/Badger-Finance/ebtc/blob/1b0a073075484670f24947e0f455031144d3a1e0/packages/contracts/contracts/CdpManagerStorage.sol#L21-L124</a></p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">
+              dmitriia
+            </a>
+            <time>9/21/2023</time>
+          </div>
+          <div class="body"><p>Still looking into the code, but overall <code>15 minutes</code> seems short as the only window for target whale borrower reaction in the whale sniping scenario. In the same time it is the period for which attacker bears the risk, so when this period is short it&#39;s both narrow window for possible target reaction and low enough risk for the attacker. </p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">
+              dmitriia
+            </a>
+            <time>9/21/2023</time>
+          </div>
+          <div class="body"><p>On the other hand, since infinite grace period means no liquidations in RM while <code>ICR &gt;= MCR</code>, the max grace period is also due for <code>setGracePeriod()</code>.</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">
+              dmitriia
+            </a>
+            <time>9/21/2023</time>
+          </div>
+          <div class="body"><blockquote>
+<p><a href="https://github.com/Badger-Finance/ebtc/blob/1b0a073075484670f24947e0f455031144d3a1e0/packages/contracts/contracts/CdpManagerStorage.sol#L21-L124">https://github.com/Badger-Finance/ebtc/blob/1b0a073075484670f24947e0f455031144d3a1e0/packages/contracts/contracts/CdpManagerStorage.sol#L21-L124</a></p>
+</blockquote>
+<p>Looks ok.</p>
+<p>Somewhat higher lower boundary and an introduction of the upper one are suggested, i.e. the grace period can be bounded to <code>[1 hour, 2 days]</code>, as an example.</p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

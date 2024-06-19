@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>`CRLens` contract considerations and improvements</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/37">cantinasec/review-badgerdao#37</a></span>
+        </p>
+        <h1>`CRLens` contract considerations and improvements</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>9/27/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/CRLens.sol">CRLens.sol</a></p>
+<p><strong>Description/Recommendation:</strong></p>
+<p>The <code>CRLens</code> contract is a utility contract that allows external entities to query the CDP Manager. </p>
+<ol>
+<li>Create a <code>ICRLens</code> interface that will be inherited by <code>CRLens</code> and that can be used by external integrators to build on top or query <code>CRLens</code>.</li>
+<li>Add full natspec support to <code>CRLens</code> (or the <code>ICRLens</code> interface). Many functions have only a partial natspec support.</li>
+<li>Consider renaming the function by replacing &quot;real&quot; with &quot;synched&quot;. The <code>CdpManager</code> have already adopted this term to identify those functions that synch the system and CDP indexes, apply fee split and update the CDP state.</li>
+<li>Delete the <code>price</code> variable inside <code>getRealNICR</code> because is never used.</li>
+<li>Consider returning a <code>bool</code> instead of a <code>uint256</code> in <code>quoteCheckRecoveryMode</code>. The recovery mode is a <code>true/false</code> value, and it could be confusing for the integrators to receive a <code>uint256</code> value that can only assume <code>0/1</code>. The function could be refactored like this:</li>
+</ol>
+<pre><code class="language-diff">- function quoteCheckRecoveryMode() external returns (uint256) {
++ function quoteCheckRecoveryMode() external returns (bool) {
+      try this.getCheckRecoveryMode(true) {} catch (bytes memory reason) {
+-          return parseRevertReason(reason);
++          return parseRevertReason(reason) == 1;
+      }
+  }
+</code></pre>
+<ol start="6">
+<li>Consider removing the <code>_priceFeed</code> dependency from the <code>CRLens.constructor</code>. The Price Feed in the <code>CdpManager</code> is an immutable variable and can be directly retrieved from it by executing <code>cdpManager.priceFeed()</code>. Here&#39;s an example of a possible refactoring:</li>
+</ol>
+<pre><code class="language-diff">- constructor(address _cdpManager, address _priceFeed) {
++ constructor(address _cdpManager) {
+      cdpManager = ICdpManager(_cdpManager);
+-     priceFeed = IPriceFeed(_priceFeed);
++     priceFeed = cdpManager.priceFeed();
+  }
+</code></pre>
+<ol start="7">
+<li>Consider further documenting the usage of <code>CRLens</code>. While it&#39;s true that this contract will probably be used only by integrators or advanced users, the documentation about the proper usage (and the revert mechanism) could be further improved and better explained.</li>
+</ol>
+<p><strong>BadgerDao:</strong> Not fixing as the <code>CRLens</code> is mostly a tool to debug.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>10/2/2023</time>
+          </div>
+          <div class="body"><p>Nofixing as the CRLens is mostly a tool to debug</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>10/3/2023</time>
+          </div>
+          <div class="body"><p>Ack</p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

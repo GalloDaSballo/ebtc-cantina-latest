@@ -1,0 +1,156 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>Bulk Informational Issues relative to Release 0.4 PR</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/33">cantinasec/review-badgerdao#33</a></span>
+        </p>
+        <h1>Bulk Informational Issues relative to Release 0.4 PR</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>9/24/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> Global scope</p>
+<p><strong>Description:</strong> This issue includes a list of informational issues found and noted while reviewing the PR that would merge the <a href="https://github.com/Badger-Finance/ebtc/pull/620">Release 0.4 PR</a> into the main branch.</p>
+<p>The issues are not sorted by type or files.</p>
+<ol>
+<li>Inside <code>CdpManagerStorage.getICR</code>  <code>currentETH</code> are not ETH but SHARES.</li>
+<li>Inside <code>CdpManagerStorage.getNominalICR</code>  <code>currentETH</code> are not ETH but SHARES.</li>
+<li><code>LiquityMath</code> <code>_computeNominalCR</code> and <code>_computeCR</code> should specify if <code>_coll</code> is <code>stETH</code> or shares.</li>
+<li>In general, there are other places where the term <code>collateral</code>/<code>coll</code> is used in a mixed way. Sometimes it&#39;s about <code>stETH</code> shares, sometimes it&#39;s about <code>stETH</code>. I think that the best thing to do is to:<ol>
+<li>Not use anymore the term <code>coll</code>/<code>collateral</code> and always use <code>stETH</code> or <code>stETHShares</code>.</li>
+<li>Decide which is the collateral and use the other as the secondary term. So, for example, you define that <code>stETH</code> is the collateral and so by default when you see the term <code>coll</code> you know you are referring to <code>stETH</code> and everything else that is not <code>coll</code> or <code>stETH</code> should be explicitly defined as <code>stETHShares</code>.</li>
+</ol>
+</li>
+<li>missing full-natspec for functions like <code>_calcSyncedAccounting</code>, <code>_getSyncedCdpDebtAndRedistribution</code> and so on (I assume there are more where the natspec miss or is incomplete). Try to fully cover the functions with <code>@notice</code>, <code>@dev</code>, <code>@param</code> and <code>@return</code> when needed.</li>
+<li><code>syncGlobalAccounting</code> <code>@dev</code> comment is unfinished.</li>
+<li>if a grace period starts, it won&#39;t be bound to the current value of <code>recoveryModeGracePeriod</code>. The caller could call <code>setGracePeriod</code> and change the grace period that has already started by making it smaller or bigger. See issue <a href="https://github.com/cantinasec/review-badgerdao/issues/30">&quot;Governance can to end or extend the grace period even when a grace period is already ongoing&quot;</a>.</li>
+<li>Consider changing <code>recoveryModeGracePeriod</code> to <code>recoveryModeGracePeriodDuration</code>.</li>
+<li>Refactor <code>CdpManagerStorage</code> to have constants, storage layouts and so on as the first thing and function after (with a proper order). Please follow the <a href="https://docs.soliditylang.org/en/latest/style-guide.html">Solidity Style guide</a>.</li>
+<li>In <code>CdpManagerStorage</code> <code>stEthFeePerUnitIndex</code> was more meaningful before (<code>stFeePerUnitcdp</code>). Now it has lost the information that it&#39;s about CDP. Consider changing the name to be a reference to the single CDP index.</li>
+<li>Same thing for <code>debtRedistributionIndex</code> in <code>CdpManagerStorage</code>(not that before was more meaningful). Consider renaming to something that is related to the CDP.</li>
+<li>In <code>CdpManagerStorage</code> <code>lastEBTCDebtErrorRedistribution</code> has &quot;lost&quot; the <code>_</code> in the name, but <code>lastETHError_Redistribution</code> still has it. Use the same naming standard.</li>
+<li>In <code>CdpManagerStorage</code> there are multiple occurrences of the variable <code>CdpIdsArrayLength</code> that is declared with the first letter uppercase. Follow the Solidity style guide and declare it with the first letter lowercase.</li>
+<li>In <code>CdpManagerStorage</code> use the same order for the input parameters (both <code>stETH</code> index) for <code>_syncStEthIndex</code> and <code>_calcSyncedGlobalAccounting</code>. In those function, the order is inverted and could cause confusion. Try to always stick with the same order.</li>
+<li><code>CdpManagerStorage</code> <code>getSyncedICR</code> and <code>getSyncedTCR</code> can be declared <code>external</code> because are not used by any contract.</li>
+<li><code>CdpManagerStorage</code> <code>getNominalICR</code> and <code>getICR</code> uses the variable <code>currentETH</code> but inside that variable you don&#39;t have <code>ETH</code> or <code>stETH</code> but <code>stETHShares</code> returned by <code>getDebtAndCollShares</code>. Change the name of the variable accordingly.</li>
+<li>In general, it seems that the name <code>EBTC</code> has been replaced in many places with the general term &quot;Debt&quot;. For example, <code>getPendingEBTCDebtReward</code> has been renamed <code>getPendingRedistributedDebt</code>. There are still many instances in the whole codebase where variables and functions refer to <code>eBTC</code> instead of <code>debt</code> (same for <code>stETH</code>/<code>ETH</code> for <code>coll</code> or <code>collateral</code>). Badger should define a very strict standard for the naming convention and apply broadly to the whole codebase. Having a mixture of both creates confusion and could lead to errors.</li>
+<li>In <code>CdpManagerStorage</code> <code>_getPendingRedistributedDebt</code> explicitly return set or return a value for <code>pendingEBTCDebtReward</code> because right now the <code>else</code> case is not handled and could lead to error/create confusion.</li>
+<li><code>IEBTCToken</code> <code>EBTCTokenBalanceUpdated</code> event can be removed because it&#39;s not used anywhere in the codebase.</li>
+<li>In <code>HintHelpers</code> <code>_calculateCdpStateAfterPartialRedemption</code> the variable names should be updated to clarify when they store <code>stETH</code> or <code>shares</code>. </li>
+<li>In <code>LiquidationLibrary</code> use the same style to declare the revert message. Sometimes they start with &quot;LiquidationLibrary: &quot;, sometimes with &quot;CdpManager:&quot; and sometimes like in <code>_reInsertPartialLiquidation</code> they do not have the reference to the source at all.</li>
+<li>Avoid using &quot;magic number&quot; <code>1e18</code> in <code>LiquidationLibrary._liquidateIndividualCdpSetupCDPInNormalMode</code>. Use <code>BaseMath.DECIMAL_PRECISION</code>.</li>
+<li>Avoid using &quot;magic number&quot; <code>1e18</code> in <code>LiquidationLibrary._liquidateIndividualCdpSetupCDPInRecoveryMode</code>. Use <code>BaseMath.DECIMAL_PRECISION</code>.</li>
+<li>In <code>LiquidationLibrary</code> the function is passing <code>stETH shares</code> and not <code>stETH</code> to the event <code>CdpLiquidated</code> for the parameter <code>_coll</code>. Please verify that it is implemented as intended.</li>
+<li>In <code>LiquidationLibrary</code> to the event <code>CdpLiquidated</code> <code>_premiumToLiquidator</code> is defined as <code>_cappedColl &gt; _debtToColl ? (_cappedColl - _debtToColl) : 0</code> where <code>_cappedColl</code> is calculated as <code>collateral.getPooledEthByShares(_cappedColPortion + _liquidatorReward)</code>.</li>
+</ol>
+<p>The <code>_liquidatorReward</code> (the reward given to the liquidator as the gas stipend) should be outside the calculation of the <code>_cappedColl</code> and should be always added to the final value passed to the <code>_premiumToLiquidator</code> parameter. Here&#39;s an example:</p>
+<pre><code class="language-solidity">uint _cappedColl = collateral.getPooledEthByShares(_cappedColPortion);
+uint256 premium = _cappedColl &gt; _debtToColl ? (_cappedColl - _debtToColl) : 0
+emit CdpLiquidated(
+    _recoveryState.cdpId,
+    _borrower,
+    _totalDebtToBurn,
+    _cappedColPortion,
+    CdpOperation.liquidateInRecoveryMode,
+    msg.sender,
+    premium + collateral.getPooledEthByShares(_liquidatorReward)
+);
+</code></pre>
+<ol start="27">
+<li><code>LiquidationSequencer</code> does not check if the grace period has passed (if we are in RM). See issue <a href="https://github.com/cantinasec/review-badgerdao/issues/32">&quot;The liquidation logic is not always using the same requirement when the system is in RM&quot;</a>.</li>
+<li><code>LiquidationSequencer</code> does not perform the same check done in <code>LiquidationLibrary</code> when we are in <code>RM</code>. Over there <code>_liquidateIndividualCdpSetup</code> require that <code>_ICR &lt;= _TCR</code> instead in the helper <code>_canLiquidateInCurrentMode</code> check that <code>_icr &lt; _TCR</code>. See issue <a href="https://github.com/cantinasec/review-badgerdao/issues/32">&quot;The liquidation logic is not always using the same requirement when the system is in RM&quot;</a>.</li>
+<li>Update the revert message in <code>LiquidationSequencer</code> because now they say &quot;LiquidationLibrary:&quot;.</li>
+<li>Improvement: create a common library for the checks done by <code>LiquidationSequencer</code> and <code>LiquidationLibrary</code> to be sure to implement both of them correctly.</li>
+<li>In <code>LiquidationLibrary</code> avoid using the direct value of the Cdp Status, use the Enum instead (example <code>_cdpStatus == 1</code>).</li>
+<li>Remove <code>public</code> visibility from the <code>MultiCdpGetter</code> constructor (it&#39;s ignored by solidity).</li>
+<li>In <code>ICdpManagerData</code> rename the <code>debtToOffset</code> attribute of the struct <code>LiquidationValues</code> to <code>debtToBurn</code>. The current name used is a concept related to <code>Liquity</code> and could create confusion in <code>eBTC</code>.</li>
+<li>In <code>ICdpManagerData</code> rename the <code>totalDebtToOffset</code> attribute of the struct <code>LiquidationTotals</code> to <code>debtToBurn</code>. The current name used is a concept related to <code>Liquity</code> and could create confusion in <code>eBTC</code>.</li>
+<li>In <code>CdpManager.redeemCollateral</code> the <code>require(redemptionsPaused == false, ...)</code> check can be moved at the very beginning of the function to save gas if the redemption process has been paused.</li>
+<li>In <code>redeemCollateral()</code> <code>totals.totalETHDrawn</code> and <code>totals.ETHToSendToRedeemer</code> are in stETH <strong>shares</strong> and to be named accordingly.</li>
+</ol>
+<p><strong>Recommendation:</strong> Badger should consider solving the issues listed in the description section. The main suggestion would be to:</p>
+<ul>
+<li>Consolidate the renaming migration they have started to remove any possible confusion around the term collateral, <code>stETH</code> and <code>shares</code>.</li>
+<li>Remove references and nomenclatures that were relevant in the Liquity project but are not inside the eBTC context.</li>
+<li>Cover all the variables, functions and interfaces with full natspec support.</li>
+</ul>
+<p><strong>BadgerDAO:</strong> Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>9/27/2023</time>
+          </div>
+          <div class="body"><p>Updated the listed issues with a couple of more points and modified some of them. I&#39;ll probably end up creating separate issues to regroup some of them.</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>9/27/2023</time>
+          </div>
+          <div class="body"><p>Moved some specific points to the issue <a href="https://github.com/cantinasec/review-badgerdao/issues/38">https://github.com/cantinasec/review-badgerdao/issues/38</a></p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">
+              dmitriia
+            </a>
+            <time>10/4/2023</time>
+          </div>
+          <div class="body"><ol start="36">
+<li>In <code>redeemCollateral()</code> <code>totals.totalETHDrawn</code> and <code>totals.ETHToSendToRedeemer</code> are in stETH <strong>shares</strong> and to be named accordingly.</li>
+</ol>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>10/5/2023</time>
+          </div>
+          <div class="body"><blockquote>
+<ol start="36">
+<li>In <code>redeemCollateral()</code> <code>totals.totalETHDrawn</code> and <code>totals.ETHToSendToRedeemer</code> are in stETH <strong>shares</strong> and to be named accordingly.</li>
+</ol>
+</blockquote>
+<p>I have added it to the list, @dmitriia feel free to edit my issue when you need it ;)</p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

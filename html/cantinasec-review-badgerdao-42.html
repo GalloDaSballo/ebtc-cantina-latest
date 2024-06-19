@@ -1,0 +1,643 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>Liquidator can receive outsized incentives by aiming the best liquidable CDPs first</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/42">cantinasec/review-badgerdao#42</a></span>
+        </p>
+        <h1>Liquidator can receive outsized incentives by aiming the best liquidable CDPs first</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">dmitriia</a>
+            <time>10/5/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.5/packages/contracts/contracts/LiquidationLibrary.sol#L505-L507">LiquidationLibrary.sol#L505-L507</a></p>
+<p><strong>Description:</strong> While the issue not being limited to batch processing and is related to the overall protocol design, we first illustrate the batch liquidations case by showing that there stale ICRs can be used which enables the extraction of additional collateral incentives. LiquidationLibrary&#39;s <code>batchLiquidateCdps()</code> runs <code>_getTotalFromBatchLiquidate_RecoveryMode()</code> and <code>_getTotalsFromBatchLiquidate_NormalMode()</code> that process CDPs in an order supplied by liquidator. Those CDPs are synchronized with the current accrued fee split and bad debt values, while bad debt originated from the batch liquidations themself is not accounted for, i.e. after a liquidation resulted in creation of some bad debt, having <code>singleLiquidation.debtToRedistribute &gt; 0</code>, all the ICR calculated for the subsequent CDPs using old accrual values become stale, i.e. somewhat oversized.</p>
+<p>While TCR is tracked by updating <code>totalDebtToOffset</code>, <code>totalCollToSendToLiquidator</code>, <code>totalCollSurplus</code>, assuming that bad debt to be redistributed and so shouldn&#39;t be accounted for, the ICR of each CDP doesn&#39;t account for the fact that there is bad debt queued to be added to this CDP&#39;s debt. This is not equivalent to sequential liquidation of the same ids and allows for extracting of the additional collateral compensation by a liquidator as bigger ICR allows for bigger incentives portion than they can be provided with according to the protocol rules and given the actual state of the pool.</p>
+<p>I.e. bad debt accounting happens after all the liquidations, so late CDPs are appear healthier than they are and provide liquidator more reward than they should, making the total liquidator reward bigger than it&#39;s due per protocol logic as part of the debt is hidden when reward is being calculated. In other words liquidation of many CDPs with bad debt artificially ignores the bad debt from within the batch, allowing for earning extra incentives compared to the sequential liquidation of the same ids that updates the state fully between each step.</p>
+<p>Bad debt created is accumulated during subsequent liquidations in the totals structure:</p>
+<pre><code class="language-solidity">function _getLiquidationValuesRecoveryMode(
+    // ...
+) internal {
+    LiquidationRecoveryModeLocals memory _recState = LiquidationRecoveryModeLocals(
+        // ...
+    );
+
+    LiquidationRecoveryModeLocals
+        memory _outputState = _liquidateIndividualCdpSetupCDPInRecoveryMode(_recState);
+
+    singleLiquidation.entireCdpDebt = _outputState.totalDebtToBurn;
+    singleLiquidation.debtToOffset = _outputState.totalDebtToBurn;
+    singleLiquidation.totalCollToSendToLiquidator = _outputState.totalColToSend;
+    singleLiquidation.collSurplus = _outputState.totalColSurplus;
+    // See the line below
+    singleLiquidation.debtToRedistribute = _outputState.totalDebtToRedistribute;
+    singleLiquidation.collReward = _outputState.totalColReward;
+}
+</code></pre>
+<pre><code class="language-solidity">function _addLiquidationValuesToTotals(
+    LiquidationTotals memory oldTotals,
+    LiquidationValues memory singleLiquidation
+) internal pure returns (LiquidationTotals memory newTotals) {
+    // Tally all the values with their respective running totals
+    newTotals.totalDebtInSequence =
+        oldTotals.totalDebtInSequence +
+        singleLiquidation.entireCdpDebt;
+    newTotals.totalDebtToOffset = oldTotals.totalDebtToOffset + singleLiquidation.debtToOffset;
+    newTotals.totalCollToSendToLiquidator =
+        oldTotals.totalCollToSendToLiquidator +
+        singleLiquidation.totalCollToSendToLiquidator;
+    // See the line below
+    newTotals.totalDebtToRedistribute =
+        oldTotals.totalDebtToRedistribute +
+        singleLiquidation.debtToRedistribute;
+    // ...
+</code></pre>
+<pre><code class="language-solidity">// Add liquidation values to their respective running totals
+totals = _addLiquidationValuesToTotals(totals, singleLiquidation);
+</code></pre>
+<p>But it is applied to the pool state only after all the liquidations come through, in <code>_finalizeLiquidation()</code>:</p>
+<pre><code class="language-solidity">function _finalizeLiquidation(
+    // ...
+) internal {
+    // update the staking and collateral snapshots
+    _updateSystemSnapshotsExcludeCollRemainder(totalColToSend);
+
+    emit Liquidation(totalDebtToBurn, totalColToSend, totalColReward);
+
+    _syncGracePeriodForGivenValues(
+        systemInitialCollShares - totalColToSend - totalColSurplus,
+        systemInitialDebt - totalDebtToBurn,
+        price
+    );
+
+    // redistribute debt if any
+    if (totalDebtToRedistribute &gt; 0) {
+        // See the line below
+        _redistributeDebt(totalDebtToRedistribute);
+    }
+    // ...
+</code></pre>
+<p>So liquidator incentive collateral can be overstated, being dependent linearly on stale ICR in the <code>_ICR &gt; LICR</code> case, which appears bigger than it is as there is already generated, but still undistributed bad debt:</p>
+<pre><code class="language-solidity">function _calculateSurplusAndCap(
+    uint256 _ICR,
+    uint256 _price,
+    uint256 _totalDebtToBurn,
+    uint256 _totalColToSend,
+    bool _fullLiquidation
+)
+    private
+    view
+    returns (uint256 cappedColPortion, uint256 collSurplus, uint256 debtToRedistribute)
+{
+    // Calculate liquidation incentive for liquidator:
+    // If ICR is less than 103%: give away 103% worth of collateral to liquidator, i.e., repaidDebt * 103% / price
+    // If ICR is more than 103%: give away min(ICR, 110%) worth of collateral to liquidator, i.e., repaidDebt * min(ICR, 110%) / price
+    uint256 _incentiveColl;
+    if (_ICR &gt; LICR) {
+        // See the line below
+        _incentiveColl = (_totalDebtToBurn * (_ICR &gt; MCR ? MCR : _ICR)) / _price;  // @audit _ICR is actually lower and that much incentive can&#39;t be given away
+    } else {
+        if (_fullLiquidation) {
+            // for full liquidation, there would be some bad debt to redistribute
+            _incentiveColl = collateral.getPooledEthByShares(_totalColToSend);
+            uint256 _debtToRepay = (_incentiveColl * _price) / LICR;
+            debtToRedistribute = _debtToRepay &lt; _totalDebtToBurn
+                ? _totalDebtToBurn - _debtToRepay
+                : 0;
+        } else {
+            // for partial liquidation, new ICR would deteriorate
+            // since we give more incentive (103%) than current _ICR allowed
+            _incentiveColl = (_totalDebtToBurn * LICR) / _price;
+        }
+    }
+    cappedColPortion = collateral.getSharesByPooledEth(_incentiveColl);
+    cappedColPortion = cappedColPortion &lt; _totalColToSend ? cappedColPortion : _totalColToSend;
+    collSurplus = (cappedColPortion == _totalColToSend) ? 0 : _totalColToSend - cappedColPortion;
+}
+</code></pre>
+<p>Impact: liquidators can obtain extra collateral incentives with regard to the actual state of the pool and the stated <code>max(103%, min(ICR, 110%))</code> formula. In order for this to happen there should be CDPs with <code>ICR &lt; LICR</code>, so bad debt can be generated, and also CDPs with <code>LICR &lt; ICR &lt; MCR</code>, so there is a collateral incentive obtainable linearly to the ICR of the CDP liquidated. Grace period introduction somewhat increases the odds of reaching this situation as during it some CDPs with <code>MCR &lt; ICR &lt; TCR</code> can become ones with <code>ICR &lt; MCR</code>, as market quickly drops, for example, and it will generally be more CDPs available for liquidation during shorter period.</p>
+<p>Per high total likelihood and low to medium impact setting the severity to be medium.</p>
+<p><strong>Recommendation:</strong> First, consider redistributing debt after each liquidation, e.g.:</p>
+<pre><code class="language-diff">  function _getTotalFromBatchLiquidate_RecoveryMode(
+        // ...
+  ) internal returns (LiquidationTotals memory totals) {
+        // ...
+      for (vars.i = _start; ; ) {
+          vars.cdpId = _cdpArray[vars.i];
+          // only for active cdps
+          if (vars.cdpId != bytes32(0) &amp;&amp; Cdps[vars.cdpId].status == Status.active) {
+              vars.ICR = getICR(vars.cdpId, _price);
+
+              if (
+                  !vars.backToNormalMode &amp;&amp;
+                  (vars.ICR &lt; MCR || canLiquidateRecoveryMode(vars.ICR, _TCR))
+              ) {
+                  vars.price = _price;
+                  _syncAccounting(vars.cdpId);
+                  _getLiquidationValuesRecoveryMode(
+                      _price,
+                      vars.entireSystemDebt,
+                      vars.entireSystemColl,
+                      vars,
+                      singleLiquidation,
+                      sequenceLiq
+                  );
++                 if (singleLiquidation.debtToRedistribute &gt; 0) {
++                     _redistributeDebt(singleLiquidation.debtToRedistribute);
++                 }
+                  // Update aggregate trackers
+                  // ...
+                  vars.backToNormalMode = _TCR &lt; CCR ? false : true;
+                  _liqFlags[vars.i] = true;
+                  _liqCnt += 1;
+              } else if (vars.backToNormalMode &amp;&amp; vars.ICR &lt; MCR) {
+                  _syncAccounting(vars.cdpId);
+                  _getLiquidationValuesNormalMode(
+                      _price,
+                      _TCR,
+                      vars,
+                      singleLiquidation,
+                      sequenceLiq
+                  );
++                 if (singleLiquidation.debtToRedistribute &gt; 0) {
++                     _redistributeDebt(singleLiquidation.debtToRedistribute);
++                 }
+                  // Add liquidation values to their respective running totals
+                  totals = _addLiquidationValuesToTotals(totals, singleLiquidation);
+                  _liqFlags[vars.i] = true;
+                  _liqCnt += 1;
+              }
+              // ...
+</code></pre>
+<pre><code class="language-diff">  function _getTotalsFromBatchLiquidate_NormalMode(
+      // ...
+  ) internal returns (LiquidationTotals memory totals) {
+      // ...
+      for (vars.i = _start; ; ) {
+          vars.cdpId = _cdpArray[vars.i];
+          // only for active cdps
+          if (vars.cdpId != bytes32(0) &amp;&amp; Cdps[vars.cdpId].status == Status.active) {
+              vars.ICR = getICR(vars.cdpId, _price);
+
+              if (vars.ICR &lt; MCR) {
+                  _syncAccounting(vars.cdpId);
+                  _getLiquidationValuesNormalMode(
+                      _price,
+                      _TCR,
+                      vars,
+                      singleLiquidation,
+                      sequenceLiq
+                  );
++                 if (singleLiquidation.debtToRedistribute &gt; 0) {
++                     _redistributeDebt(singleLiquidation.debtToRedistribute);
++                 }
+                  // Add liquidation values to their respective running totals
+                  totals = _addLiquidationValuesToTotals(totals, singleLiquidation);
+                  _liqCnt += 1;
+              }
+          }
+          // ...
+</code></pre>
+<pre><code class="language-diff">  function _finalizeLiquidation(
+      // ...
+  ) internal {
+      // update the staking and collateral snapshots
+      _updateSystemSnapshotsExcludeCollRemainder(totalColToSend);
+
+      emit Liquidation(totalDebtToBurn, totalColToSend, totalColReward);
+
+      _syncGracePeriodForGivenValues(
+          systemInitialCollShares - totalColToSend - totalColSurplus,
+          systemInitialDebt - totalDebtToBurn,
+          price
+      );
+
+-     // redistribute debt if any
+-     if (totalDebtToRedistribute &gt; 0) {
+-         _redistributeDebt(totalDebtToRedistribute);
+-     }
+      // ...
+</code></pre>
+<p>It doesn&#39;t seem to be enough as a liquidator can simply arrange ids in <code>_cdpArray</code> argument of <code>batchLiquidateCdps()</code> so that all the good ones come first and all the bad ones come last, so ICRs of good ones not being reduced by bad debt redistribution coming from the bad ones.</p>
+<p>This can be controlled by introducing a rolling ICR metric and demanding that liquidator supply <code>_cdpArray</code> with increasing ICRs, e.g. (for _getTotalFromBatchLiquidate_RecoveryMode it&#39;s the same):</p>
+<pre><code class="language-diff">  function _getTotalsFromBatchLiquidate_NormalMode(
+        // ...
+  ) internal returns (LiquidationTotals memory totals) {
+        // ...
++     uint256 lastICR;
+      for (vars.i = _start; ; ) {
+          vars.cdpId = _cdpArray[vars.i];
+          // only for active cdps
+          if (vars.cdpId != bytes32(0) &amp;&amp; Cdps[vars.cdpId].status == Status.active) {
+              vars.ICR = getICR(vars.cdpId, _price);
++             require(vars.ICR &gt;= lastICR, &quot;LiquidationLibrary: ascending ICR order is required for CPDs&quot;);
++             lastICR = vars.ICR;
+              if (vars.ICR &lt; MCR) {
+                   // ...
+              }
+          }
+          // ...
+</code></pre>
+<p>This will not close the surface fully as a liquidator can still run a series of individual liquidations atomically in the same good first, bad last manner.</p>
+<p>As a more complete approach in order to align design with incentives consider requiring that CDP being liquidated has to be the worst one, i.e. that <code>sortedCdps.getNext(liquidatedID) == sortedCdps.nonExistId()</code>. This will properly redistribute all the bad debt due and ensure that ICRs used for liquidator incentive calculations are not overstated.</p>
+<p><strong>BadgerDAO:</strong> Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>10/5/2023</time>
+          </div>
+          <div class="body"><p>Let&#39;s model this further before writing a fix, also worth discussing with Liquity</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>10/5/2023</time>
+          </div>
+          <div class="body"><p>Overall this is equivalent to saying that Current Liquidations are not Subject to Pending Bad Debt redistribution</p>
+<p>I believe the most egregious case is how Bad Debt Redistribution could be avoided via front-running and closing / reducing stake, this is a further example of such a case which favours the Liquidator and unfavours Stakers</p>
+<p>In terms of the size and impact of the redistribution that is dependent on a few factors which we should further model:</p>
+<ul>
+<li>Stake of Liquidatable CDPs (Stake % determine % of Bad Debt to receive)</li>
+<li>Ratio of Bad Debt</li>
+</ul>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/rayeaster">
+              rayeaster
+            </a>
+            <time>10/6/2023</time>
+          </div>
+          <div class="body"><p>This looks like a liquidation ordering issue: &quot;Good&quot; (debt redistribution free) first, &quot;Bad&quot; (generate debt redistribution) later. </p>
+<p>Every coin got two sides.</p>
+<p>If we apply the suggestion of &quot;CDP being liquidated has to be the worst one&quot;, it will remove the freedom for liquidators to choose CDPs, i.e., no flexibility and diversity in liquidation competition anymore. For example, if the &quot;worst&quot; one is a gigantic CDP, even with partial liquidation, it will still block the liquidations of other smaller risky CDPs. In a way, it might delay the recovery of the entire system to normal mode.</p>
+<p>I intend to agree with @dmitriia opinion that adding a ICR ordering check for batch liquidation and apply debt redistribution inside the loop for each &quot;bad&quot; liquidated CDP could be a valid mitigation.</p>
+<p>&quot;run a series of individual liquidations&quot; could cost liquidator more and increase uncertainty obviously </p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>10/6/2023</time>
+          </div>
+          <div class="body"><p>Let&#39;s model this first via the following:</p>
+<p>-&gt; System at X% CR - (worst case IMO is 120% CR already insanely levered)
+-&gt; Bad Debt % (e.g. 109% vs 100% vs 95% vs 80% CR on Underwater CDPs)
+-&gt; Use Partial Liquidations with 3% premium, without redistribution
+-&gt; Compute total bad debt
+-&gt; Check Stake (since the bad debt is redistributed via stake)
+-&gt; See impact on those liquidations</p>
+<p>Also note that since we have 3% fixed premium, the marginal additional bad debt is already guaranteed to the rest of stakers, so this must be modelled further</p>
+<p>You can fork some of my scripts here to get started:
+<a href="https://github.com/GalloDaSballo/Cdp-Demo/tree/main/scripts">https://github.com/GalloDaSballo/Cdp-Demo/tree/main/scripts</a></p>
+<p>Will send something next week</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>10/8/2023</time>
+          </div>
+          <div class="body"><p>Note on targeting CDPs, unless we enforce the sorting via the LL, then the recommendation above can be sidestepped by passing in one CDP at a time or a segment of the list that has lower risk</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>10/9/2023</time>
+          </div>
+          <div class="body"><p>Consideration 1:
+The above doesn&#39;t apply to undercollateralized CDPs
+For Undercollateralized CDPs, the Premium is fixed to 3%</p>
+<p>If we simplify the system to Coll and Debt having the same price</p>
+<p>Then a underwater CDP has 
+Coll = 100
+Debt &gt; 100</p>
+<p>For these CDPs, a 3% premium is
+Coll / 103 = Debt Repaid
+Coll withdrawn = 100%</p>
+<p>If we were to add more Bad Debt to such Cdps, the Bad Debt wouldn&#39;t attack profitability of the Liquidator, that Bad Debt is already going to be redistributed</p>
+<p>In other words: The Marginal increase in Bad Debt for Underwater CDPs is already going to be socialized</p>
+<p>This excludes the worst case scenario</p>
+<p>Thinking through non-underwater CDPs and premium for them</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>10/9/2023</time>
+          </div>
+          <div class="body"><p>From discussion in 43 we know that partial liquidations are basically equivalent, this means I used full liquidations to model the math</p>
+<p>I think for maximum precision you&#39;d need to do an integral for the proper math (liquidate CDP 1 -&gt; Redistribute to Rest), but the below is a linear approximation in the excess</p>
+<p>LOGS: CRS (100, 80, 50) Deeply underwater
+System CR at 120</p>
+<pre><code class="language-python">BAD CR 100
+
+
+total_coll 300
+total_debt 250.0
+underwater_coll 200
+underwater_debt 200.0
+
+sub_coll 200
+sub_debt 194.1747572815534
+
+bad_debt_to_redistribute 5.825242718446589
+As % of debt to liquidate 2.9126213592232943
+Skipped Debt 133.33333333333331
+Skipped Debt as % of debt to redistribute 22.88888888888894
+underwater_debt 200.0
+underwater_coll 200
+total_coll 300
+As % coll 66.66666666666666
+After all
+new_total_coll 100
+new_total_debt 55.82524271844659
+cr of sys after 179.13043478260872
+
+
+BAD CR 80
+
+
+total_coll 180
+total_debt 150.0
+underwater_coll 80
+underwater_debt 100.0
+
+sub_coll 80
+sub_debt 77.66990291262135
+
+bad_debt_to_redistribute 22.330097087378647
+As % of debt to liquidate 22.330097087378647
+Skipped Debt 44.44444444444444
+Skipped Debt as % of debt to redistribute 1.990338164251207
+underwater_debt 100.0
+underwater_coll 80
+total_coll 180
+As % coll 44.44444444444444
+After all
+new_total_coll 100
+new_total_debt 72.33009708737865
+cr of sys after 138.25503355704697
+
+
+BAD CR 50
+
+
+total_coll 129
+total_debt 108.0
+underwater_coll 29
+underwater_debt 57.99999999999999
+
+sub_coll 29
+sub_debt 28.155339805825243
+
+bad_debt_to_redistribute 29.84466019417475
+As % of debt to liquidate 51.45631067961165
+Skipped Debt 13.038759689922479
+Skipped Debt as % of debt to redistribute 0.43688752376773443
+underwater_debt 57.99999999999999
+underwater_coll 29
+total_coll 129
+As % coll 22.48062015503876
+After all
+new_total_coll 100
+new_total_debt 79.84466019417476
+cr of sys after 125.2431906614786
+</code></pre>
+<p>Code</p>
+<pre><code class="language-python">## Bad Debt per Liquidation
+
+## Each subsequent would have a stake %
+
+## The Stake % is used to calculate the Debt Skipped by the Liquidator
+
+
+
+def get_debt(coll, cr):
+    return coll / cr * 100
+
+def get_cr(coll, debt):
+    return coll / debt * 100
+
+
+## Figure out the cost of the swap
+COST_SWAP = 30 ## Either Pool, or Mint Fee
+
+
+SAFE_COLL = 100
+SAFE_CR = 200
+SAFE_DEBT = get_debt(SAFE_COLL, SAFE_CR)
+
+SIM_CR = 120 ## 120 CR of the whole system
+
+
+def generate_debt_and_coll_scenario(underwater_cr, target_system_cr, safe_coll, safe_debt):
+    underwater_coll = 0
+    underwater_debt = 0
+
+    total_coll = safe_coll + underwater_coll
+    total_debt = safe_debt + underwater_debt
+
+    ## All of these are undercollateralized
+    while get_cr(total_coll, total_debt) &gt; target_system_cr:
+        underwater_coll += 1
+        underwater_debt = get_debt(underwater_coll, underwater_cr)
+
+        total_coll = safe_coll + underwater_coll
+        total_debt = safe_debt + underwater_debt
+
+    return [
+        underwater_coll,
+        underwater_debt,
+        total_coll,
+        total_debt
+    ]
+
+    ## While the reality of chunking is slightly different
+    ## A theoretical chunking is 100% of Liquidatable Debt / Stake of the total debt (give by CR)
+    ## This is the absolute worst case, which is good to model worst impact
+
+LICR = 103
+
+def full_liq(COLL):
+  ## burn all coll since we&#39;re capped on debt and not on coll
+  return [COLL, COLL / LICR * 100]
+
+def loop(underwater_cr):
+
+  assert underwater_cr &lt; 103 ## It&#39;s actually underwater
+
+  [
+        underwater_coll,
+        underwater_debt,
+        total_coll,
+        total_debt
+  ] = generate_debt_and_coll_scenario(underwater_cr, SIM_CR, SAFE_COLL, SAFE_DEBT)
+
+  print(&quot;&quot;)
+  print(&quot;&quot;)
+  print(&quot;total_coll&quot;, total_coll)
+  print(&quot;total_debt&quot;, total_debt)
+  print(&quot;underwater_coll&quot;, underwater_coll)
+  print(&quot;underwater_debt&quot;, underwater_debt)
+
+  [sub_coll, sub_debt] = full_liq(underwater_coll)
+
+  print(&quot;&quot;)
+  print(&quot;sub_coll&quot;, sub_coll)
+  print(&quot;sub_debt&quot;, sub_debt)
+  print(&quot;&quot;)
+
+  ## Now we check the bad debt
+  bad_debt_to_redistribute = underwater_debt - sub_debt
+  print(&quot;bad_debt_to_redistribute&quot;, bad_debt_to_redistribute)
+  ## To Redistribute is the % of debt over all underwater
+  print(&quot;As % of debt to liquidate&quot;, bad_debt_to_redistribute / underwater_debt * 100)
+
+  ## Skipped is the debt 
+  skipped_stake_ratio = (underwater_coll / total_coll)
+  skipped_debt = underwater_debt * skipped_stake_ratio
+
+  ## How much did we skip?
+  print(&quot;Skipped Debt&quot;, skipped_debt)
+  print(&quot;Skipped Debt as % of debt to redistribute&quot;, skipped_debt / bad_debt_to_redistribute)
+
+  print(&quot;underwater_debt&quot;, underwater_debt)
+  print(&quot;underwater_coll&quot;, underwater_coll)
+  print(&quot;total_coll&quot;, total_coll)
+  print(&quot;As % coll&quot;, underwater_coll / total_coll * 100)
+
+  print(&quot;After all&quot;)
+
+  new_total_coll = total_coll - sub_coll
+  new_total_debt = total_debt - sub_debt
+
+  print(&quot;new_total_coll&quot;, new_total_coll)
+  print(&quot;new_total_debt&quot;, new_total_debt)
+
+  print(&quot;cr of sys after&quot;, get_cr(new_total_coll, new_total_debt))
+
+
+
+CRS = [
+   100,
+   80,
+   50
+]
+def main():
+  for bad_cr in CRS:
+   print(&quot;&quot;)
+   print(&quot;&quot;)
+   print(&quot;BAD CR&quot;, bad_cr)
+   loop(bad_cr)
+  
+main()
+</code></pre>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>10/9/2023</time>
+          </div>
+          <div class="body"><p>After thinking about it</p>
+<p>This is just another way of saying: Liquidators will liquidate Underwater CDPs last</p>
+<p>Since those offer the lowest premium</p>
+<p>This is factually true and has been modelled in conjunction with Risk DAO</p>
+<p>The entirety of the discussion falls under the fact that Liquidators will liquidate riskiest CDPs last
+And that’s a consequence of trying to minimise bad debt
+We have modelled this in conjunction with risk Dao, to determine the proper balance
+And 3% is the sweet spot from their simulations</p>
+<p>——</p>
+<p>Quick note on profitability:
+From a tool I built: <a href="https://github.com/GalloDaSballo/pool-math">https://github.com/GalloDaSballo/pool-math</a></p>
+<p>We can derive that both Curve and Balancer, with default settings, are able to swap at least the amount of a reserve before losing the 3%</p>
+<p>This is further modelled through simulations in this report:
+<a href="https://github.com/Risk-DAO/Reports/blob/main/eBTC.pdf">https://github.com/Risk-DAO/Reports/blob/main/eBTC.pdf</a></p>
+<p>——</p>
+<p>One way to further discuss the impact would be this idea of a simulation:</p>
+<p>Bad Debt CDP with
+1 Coll
+Insane DEBT CDP -&gt; highest debt possible</p>
+<p>Redistribution Victim (skip)
+120 CDP That drags the TCR down to 124.999 (max stake) -&gt; highest Coll possible</p>
+<p>Rest at 200 (safe users)</p>
+<p>——</p>
+<p>The above could help show the maximum impact</p>
+<p>However, unless I missed something this should be cause for downgrading the odds as well as the severity of the issues as the redistribution being this way is a guarantee from any rational actor</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>10/13/2023</time>
+          </div>
+          <div class="body"><p>I would classify this as the same as the risk of stakers of having to take on bad debt</p>
+<p>Which is something we accept from using the liquity model</p>
+<p>Would ask to reconsider severity given the explanation above, the impact and the risk profile the system already accepts</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">
+              dmitriia
+            </a>
+            <time>10/13/2023</time>
+          </div>
+          <div class="body"><p>I tend to think that probability of the behavior described is high as it’s profitable and has zero cost for a liquidator.</p>
+<p>It might be argued that the impact is low instead of medium, but it really depends on the state of the system. It can be correct to say that it’s low most of the times and can be medium when pool has substantial amount of bad debt.</p>
+<p>So I updated the impact to <code>low to medium</code> and severity to <code>medium</code> this way. I do not think that the implementation should be left as it is though.</p>
+<p>Simulation of the typical/most probable/going concern scenarios is generally not a proper measure of the associated risk. Corner cases can happen and should be accounted for.</p>
+<p>Liquidation incentives in eBTC are higher than in Liquity, so it can’t be said that this phenomenon is the same and is just inherited.</p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

@@ -1,0 +1,204 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>The liquidation logic is not always using the same requirement when the system is in RM</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/32">cantinasec/review-badgerdao#32</a></span>
+        </p>
+        <h1>The liquidation logic is not always using the same requirement when the system is in RM</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>9/24/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/LiquidationLibrary.sol#L72-L75">LiquidationLibrary.sol#L72-L75</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/LiquidationLibrary.sol#L719-L722">LiquidationLibrary.sol#L719-L722</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/CdpManagerStorage.sol#L812-L820">CdpManagerStorage.sol#L812-L820</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/LiquidationSequencer.sol#L89-L97">LiquidationSequencer.sol#L89-L97</a></p>
+<p><strong>Description:</strong></p>
+<p>The liquidation process is handled by the <code>LiquidationLibrary</code> that can execute the liquidation from three different functions:</p>
+<ul>
+<li><code>liquidate(...)</code> to liquidate fully a single CDP.</li>
+<li><code>partiallyLiquidate(...)</code> to liquidate partially a single CDP.</li>
+<li><code>batchLiquidateCdps(...)</code> to liquidate an array of CDP in bulk.</li>
+</ul>
+<p>These functions are called via <code>delegatecall</code> by the <code>CdpManager</code> contract. The &quot;single CDP liquidation&quot; functions will allow the liquidation of a CDP when the system is in Recovery Mode <strong>if and only if</strong>:</p>
+<ul>
+<li><code>TCR &lt; CCR</code>.</li>
+<li><code>_ICR &lt;= _TCR</code>.</li>
+<li><code>cachedLastGracePeriodStartTimestamp != UNSET_TIMESTAMP &amp;&amp; block.timestamp &gt; cachedLastGracePeriodStartTimestamp + recoveryModeGracePeriod</code>.</li>
+</ul>
+<p>If we look at the logic of <code>batchLiquidateCdps</code> when the system is in Recovery Mode it will execute <code>_getTotalFromBatchLiquidate_RecoveryMode</code> that is allowing the liquidation of a CDP (when we are in recovery mode) <strong>if and only if</strong> <code>ICR &lt; MCR || canLiquidateRecoveryMode(vars.ICR, _TCR) == true</code>.</p>
+<p>If we look at <code>CdpManagerStorage.canLiquidateRecoveryMode</code>  we see that the logic is different compared to the one we have found in the single liquidation:</p>
+<pre><code class="language-solidity">function canLiquidateRecoveryMode(uint256 icr, uint256 tcr) public view returns (bool) {
+    // ICR &lt; TCR and we have waited enough
+    uint128 cachedLastGracePeriodStartTimestamp = lastGracePeriodStartTimestamp;
+    return
+        icr &lt; tcr &amp;&amp;
+        cachedLastGracePeriodStartTimestamp != UNSET_TIMESTAMP &amp;&amp;
+        block.timestamp &gt; cachedLastGracePeriodStartTimestamp + recoveryModeGracePeriod;
+}
+</code></pre>
+<p>In this case, the check is stricter compared to the single liquidation that allows the liquidation even when <code>ICR == TCR</code>.</p>
+<p><strong><code>LiquidationSequencer</code></strong></p>
+<p>This contract allows an external user to generate the list of liquidable CDP to be passed later to the <code>CdpManager.batchLiquidateCdps(...)</code> function as a parameter.
+In this case, a CDP is added to the list of liquidable CDP only if <code>status == 1</code> (the CDP is open and active) and <code>_canLiquidateInCurrentMode(_recoveryModeAtStart, _icr, _TCR) == true</code>.</p>
+<p>The logic of <code>_canLiquidateInCurrentMode</code> is also different compared to the one used by the batch liquidation and single liquidation we have seen before:</p>
+<pre><code class="language-solidity">function _canLiquidateInCurrentMode(
+    bool _recovery,
+    uint256 _icr,
+    uint256 _TCR
+) internal view returns (bool) {
+    bool _liquidatable = _recovery ? (_icr &lt; MCR || _icr &lt; _TCR) : _icr &lt; MCR;
+
+    return _liquidatable;
+}
+</code></pre>
+<p>If we are in Recover Mode, the CDP is liquidable if <code>ICR &lt; MCR || ICR &lt; TCR</code>. In this case, the logic does not check at all the Grace Period.</p>
+<p>This means that if we are in Recover Mode, it could happen that some of the CDP that are selected by the <code>LiquidationSequencer</code> won&#39;t be liquidated when <code>CdpManager.batchLiquidateCdps(...)</code> is executed.</p>
+<p><strong>Recommendation:</strong></p>
+<p>Badger should enforce that the same check for the liquidation is executed in both the single (full and partial) and bulk liquidation. Badger should also update the logic of <code>LiquidationSequencer</code> to only select CDP that can be liquidated by the <code>CdpManager</code>.</p>
+<p><strong>BadgerDao:</strong> Fixed in <a href="https://github.com/Badger-Finance/ebtc/pull/654">PR 654</a>. A related PR for <code>LiquidationSequencer</code> is <a href="https://github.com/Badger-Finance/ebtc/pull/653">PR 653</a>.</p>
+<p><strong>Cantina:</strong> I don&#39;t understand why you don&#39;t want to include the check about the grace period inside the <code>LiquidationSequencer</code>. What&#39;s the reason? Could you elaborate? By not doing that, you are including in the array some CDP that should not be liquidated.</p>
+<p>Also, right now the <code>LiquidationSequencer</code> is &quot;wasting&quot; gas because it&#39;s calculating every time the RM flag that is static for the whole loop. The same &quot;waste&quot; is done by re-calculating each time the <code>TCR</code> that is already calculated in <code>sequenceLiqToBatchLiqWithPrice</code>.</p>
+<p>Probably the best thing to do (to offer to the integrator) would be to &quot;simulate&quot; the liquidation of those CDPs and include only which are the &quot;correct&quot; CDP to liquidate because while you liquidate each CDP the RM and TCR will change and some of the included CDPs could end up being not liquidable. I don&#39;t know how much doable (how much it makes sense for gas cost) to do it onchain, so probably you should just document this scenario?</p>
+<p>I think the optimal way is to ultimately get rid of duplications and call the very same function in core logic and in all the helpers. Full simulation can be ok for one instrument, but an overkill for another, it can be differentiated provided with proper descriptions of the limitations.</p>
+<p><strong>BadgerDAO</strong>: Agree with your point that it might be the best for integrator to have an exact/accurate &quot;simulation&quot; but it entails more work at this final stage before launch (e.g., we need to write new low-level functions to calculate the TCR with delta-change values instead using directly current collateral &amp; debt in <code>ActivePool</code> as shown in <code>LiquityBase._getTCRWithSystemDebtAndCollShares()</code>). </p>
+<p>Considering the original purpose of separating this sequential-liquidation feature from core <code>LiquidationLibrary</code> into a dedicated &quot;peripheral&quot; contract, we could document as suggested that it should be expected that the result might contain CDPs that may not be liquidatable (thus skipped in later liquidation execution). </p>
+<p>The LiquidationSequencer&#39;s initial role is as a replacement to the <code>liquidateCdps(n)</code> function that was removed, because we use it throughout the testing suite. It is a periphery helper contract, and is intended for off-chain use. The points brought up are great, and it makes sense that a better method of simulating could be developed. As it&#39;s a periphery helper, this can be developed at another time.</p>
+<p><strong>Cantina:</strong> I understand that because it won&#39;t perform actual liquidations (and update the state), the returned array could be bigger compared to the array of CDPs that will be actually liquidated. </p>
+<p>But it should try at his best to select only what can be liquidated by applying all the selection filters, and the Grace Period is one of them.</p>
+<p>Given how skilled you are, it could probably also make sense to release a python/typescript script (or foundry one) that simply forks the chain and really simulates the liquidation to select just the list of CDPs that can be liquidated. </p>
+<p><strong>BadgerDAO</strong>: Considering moving to <code>&lt;=</code> sign. Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/rayeaster">
+              rayeaster
+            </a>
+            <time>9/25/2023</time>
+          </div>
+          <div class="body"><p>fixed in <a href="https://github.com/Badger-Finance/ebtc/pull/654">https://github.com/Badger-Finance/ebtc/pull/654</a></p>
+<p>a related PR for <code>LiquidationSequencer</code> is at <a href="https://github.com/Badger-Finance/ebtc/pull/653">https://github.com/Badger-Finance/ebtc/pull/653</a></p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>9/25/2023</time>
+          </div>
+          <div class="body"><p>@rayeaster I don&#39;t understand why you don&#39;t want to include the check about the grace period inside the <code>LiquidationSequencer</code>. What&#39;s the reason? Could you elaborate? By not doing that, you are including in the array some CDP that should not be liquidated.</p>
+<p>Also, right now the <code>LiquidationSequencer</code> is &quot;wasting&quot; gas because it&#39;s calculating every time the RM flag that is static for the whole loop. The same &quot;waste&quot; is done by re-calculating each time the <code>TCR</code> that is already calculated in <code>sequenceLiqToBatchLiqWithPrice</code>.</p>
+<p>Probably the best thing to do (to offer to the integrator) would be to &quot;simulate&quot; the liquidation of those CDPs and include only which are the &quot;correct&quot; CDP to liquidate because while you liquidate each CDP the RM and TCR will change and some of the included CDPs could end up being not liquidable. I don&#39;t know how much doable (how much it makes sense for gas cost) to do it onchain, so probably you should just document this scenario?</p>
+<p>@dmitriia what are your thoughts?</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/rayeaster">
+              rayeaster
+            </a>
+            <time>9/26/2023</time>
+          </div>
+          <div class="body"><blockquote>
+<p>@rayeaster I don&#39;t understand why you don&#39;t want to include the check about the grace period inside the <code>LiquidationSequencer</code>. What&#39;s the reason? Could you elaborate? By not doing that, you are including in the array some CDP that should not be liquidated.</p>
+<p>Also, right now the <code>LiquidationSequencer</code> is &quot;wasting&quot; gas because it&#39;s calculating every time the RM flag that is static for the whole loop. The same &quot;waste&quot; is done by re-calculating each time the <code>TCR</code> that is already calculated in <code>sequenceLiqToBatchLiqWithPrice</code>.</p>
+<p>Probably the best thing to do (to offer to the integrator) would be to &quot;simulate&quot; the liquidation of those CDPs and include only which are the &quot;correct&quot; CDP to liquidate because while you liquidate each CDP the RM and TCR will change and some of the included CDPs could end up being not liquidable. I don&#39;t know how much doable (how much it makes sense for gas cost) to do it onchain, so probably you should just document this scenario?</p>
+<p>@dmitriia what are your thoughts?</p>
+</blockquote>
+<p>@StErMi agree with your point that it might be the best for integrator to have an exact/accurate &quot;simulation&quot; but it entails more work at this final stage before launch (e.g., we need to write new low-level functions to calculate the TCR with delta-change values instead using directly current collateral &amp; debt in <code>ActivePool</code> as shown in <code>LiquityBase._getTCRWithSystemDebtAndCollShares()</code>). </p>
+<p>Considering the original purpose of separating this sequential-liquidation feature from core <code>LiquidationLibrary</code> into a dedicated &quot;peripheral&quot; contract, we could document as suggested that it should be expected that the result might contain CDPs that may not be liquidatable (thus skipped in later liquidation execution). </p>
+<p>@dapp-whisperer what is your insight on this topic?</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dapp-whisperer">
+              dapp-whisperer
+            </a>
+            <time>9/28/2023</time>
+          </div>
+          <div class="body"><blockquote>
+<p>tl;dr: Let&#39;s acknowledge the limitations of this sequencer </p>
+</blockquote>
+<p>The LiquidationSequencer&#39;s initial role is as a replacement to the liquidateCdps(n) function that was removed, because we use it throughout the testing suite.</p>
+<p>It is a periphery helper contract, and is intended for off-chain use.</p>
+<p>Stermi brings up great points, and it makes sense that a better method of simulating could be developed.</p>
+<p>As it&#39;s a periphery helper, this can be developed at another time.</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>9/29/2023</time>
+          </div>
+          <div class="body"><p>I understand that because it won&#39;t perform actual liquidations (and update the state), the returned array could be bigger compared to the array of CDPs that will be actually liquidated. </p>
+<p>But it should try at his best to select only what can be liquidated by applying all the selection filters, and the Grace Period is one of them.</p>
+<p>Given how skilled you are, it could probably also make sense to release a python/typescript script (or foundry one) that simply forks the chain and really simulates the liquidation to select just the list of CDPs that can be liquidated. </p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>10/2/2023</time>
+          </div>
+          <div class="body"><p>Let&#39;s chat about this today @dapp-whisperer </p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dapp-whisperer">
+              dapp-whisperer
+            </a>
+            <time>10/2/2023</time>
+          </div>
+          <div class="body"><p>considering moving to &lt;= sign</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">
+              dmitriia
+            </a>
+            <time>10/3/2023</time>
+          </div>
+          <div class="body"><blockquote>
+<p>@rayeaster I don&#39;t understand why you don&#39;t want to include the check about the grace period inside the <code>LiquidationSequencer</code>. What&#39;s the reason? Could you elaborate?
+... 
+@dmitriia what are your thoughts?</p>
+</blockquote>
+<p>I think the optimal way is to ultimately get rid of duplications and call the very same function in core logic and in all the helpers. Full simulation can be ok for one instrument, but an overkill for another, it can be differentiated provided with proper descriptions of the limitations. </p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

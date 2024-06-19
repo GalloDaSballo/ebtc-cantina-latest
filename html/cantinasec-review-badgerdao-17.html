@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>Leverage contracts should fetch the protocol contract addresses from `cdpManager` instead of being passed as constructor parameter </title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/17">cantinasec/review-badgerdao#17</a></span>
+        </p>
+        <h1>Leverage contracts should fetch the protocol contract addresses from `cdpManager` instead of being passed as constructor parameter </h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>8/10/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroBase.sol#L51-L68">LeverageMacroBase.sol#L51-L68</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroDelegateTarget.sol#L41-L60">LeverageMacroDelegateTarget.sol#L41-L60</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroFactory.sol#L21-L35">LeverageMacroFactory.sol#L21-L35</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroReference.sol#L17-L42">LeverageMacroReference.sol#L17-L42</a></p>
+<p><strong>Description:</strong> All the <code>Leverage*</code> contracts (<code>LeverageMacroBase</code>, <code>LeverageMacroDelegateTarget</code>, <code>LeverageMacroFactory</code> and <code>LeverageMacroReference</code>) are initializing the <code>immutable</code> variables of <code>borrowerOperations</code>, <code>activePool</code>, <code>cdpManager</code>, <code>ebtcToken</code>, <code>sortedCdps</code> and <code>stETH</code> with the corresponding value passed down from the contract&#39;s <code>constructor</code>.</p>
+<p>To reduce the human error and the possibility that the wrong value is passed to such <code>constructor</code>, BadgerDAO could consider to only passing the <code>cdpManager</code> contract into the <code>constructor</code> and then gathering all the other addresses by querying the <code>cdpManager</code> itself.</p>
+<ul>
+<li><code>borrowerOperations</code> can be fetched by calling <code>cdpManager.borrowerOperationsAddress()</code>.</li>
+<li><code>activePool</code> can be fetched by calling <code>cdpManager.activePool()</code>.</li>
+<li><code>ebtcToken</code> can be fetched by calling <code>cdpManager.ebtcToken()</code>.</li>
+<li><code>sortedCdps</code> can be fetched by calling <code>cdpManager.sortedCdps()</code>.</li>
+<li><code>stETH</code> can be fetched by calling <code>cdpManager.collateral()</code>.</li>
+</ul>
+<p><strong>Recommendation:</strong> BadgerDAO should consider gathering the addresses needed to initialize <code>borrowerOperations</code>, <code>activePool</code>, <code>ebtcToken</code>, <code>sortedCdps</code> and <code>stETH</code> from the <code>cdpManager</code> instead of passing them down as <code>constructor</code> inputs.</p>
+<p>This would reduce the possibility of human error or of a misconfiguration of the <code>Leverage*</code> contracts (<code>LeverageMacroBase</code>, <code>LeverageMacroDelegateTarget</code>, <code>LeverageMacroFactory</code> and <code>LeverageMacroReference</code>).</p>
+<p><strong>BadgerDao:</strong> Acknowledging as the system is immutable, there&#39;s a chance of making a mistake initially but I don&#39;t think there&#39;s a risk.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body"><p>Acknowledging as the system is immutable, there&#39;s a chance of making a mistake initially but I don&#39;t think there&#39;s a risk </p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

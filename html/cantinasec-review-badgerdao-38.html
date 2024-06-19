@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>Some event parameters can be declared as `indexed` to better monitor those events with monitoring tools</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/38">cantinasec/review-badgerdao#38</a></span>
+        </p>
+        <h1>Some event parameters can be declared as `indexed` to better monitor those events with monitoring tools</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>9/27/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/Interfaces/ICdpManagerData.sol#L47">ICdpManagerData.sol#L47</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/Interfaces/ICdpManagerData.sol#L56C3-L56C3">ICdpManagerData.sol#L56C3-L56C3</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/Interfaces/ICdpManagerData.sol#L16">ICdpManagerData.sol#L16</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/Interfaces/ICdpManagerData.sol#L29">ICdpManagerData.sol#L29</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/Interfaces/ICollSurplusPool.sol#L9">ICollSurplusPool.sol#L9</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/Interfaces/IERC3156FlashLender.sol#L8">IERC3156FlashLender.sol#L8</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/Interfaces/IERC3156FlashLender.sol#L9">IERC3156FlashLender.sol#L9</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/Interfaces/IERC3156FlashLender.sol#L10">IERC3156FlashLender.sol#L10</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/Interfaces/IFeeRecipient.sol#L8">IFeeRecipient.sol#L8</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/Interfaces/IPool.sol#L11">IPool.sol#L11</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/Interfaces/IPositionManagers.sol#L13-L14">IPositionManagers.sol#L13-L14</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/Interfaces/IBorrowerOperations.sol#L10">IBorrowerOperations.sol#L10</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/Interfaces/IBorrowerOperations.sol#L11">IBorrowerOperations.sol#L11</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/Interfaces/IPriceFeed.sol#L9">IPriceFeed.sol#L9</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/Interfaces/IPriceFeed.sol#L10">IPriceFeed.sol#L10</a></p>
+<p><strong>Description:</strong> Some events contain parameters that could be declared as <code>indexed</code>. By doing that, Badger can later use those parameters to filters those events by those parameters value via dApps and monitoring system:</p>
+<ul>
+<li><code>ICdpManagerData</code> <code>event</code> <code>CdpLiquidated</code> can declare the <code>_liquidator</code> parameter as <code>indexed</code>.</li>
+<li><code>ICdpManagerData</code> event <code>CdpPartiallyLiquidated</code> can declare the <code>_liquidator</code> parameter as `indexed.</li>
+<li><code>ICdpManagerData</code> event <code>FeeRecipientAddressChanged</code> can declare the <code>_feeRecipientAddress</code> input as <code>indexed</code>.</li>
+<li><code>ICollSurplusPool</code> event <code>CollSharesTransferred</code> can declare the <code>_to</code> parameter as <code>indexed</code>.</li>
+<li><code>IERC3156FlashLender</code> event <code>FlashFeeSet</code> can declare the <code>_setter</code> parameter as <code>indexed</code>.</li>
+<li><code>IERC3156FlashLender</code> event <code>MaxFlashFeeSet</code> can declare the <code>_setter</code> parameter as <code>indexed</code>.</li>
+<li><code>IERC3156FlashLender</code> event <code>FlashLoansPaused</code> can declare the <code>_setter</code> parameter as <code>indexed</code>.</li>
+<li><code>IFeeRecipient</code> event <code>CollSharesTransferred</code> can declare the <code>_account</code> parameter as <code>indexed</code>.</li>
+<li><code>IPool</code> event <code>CollSharesTransferred</code> can declare the <code>_to</code> parameter as <code>indexed</code>.</li>
+<li><code>IPositionManagers</code> event <code>PositionManagerApprovalSet</code> can declare the <code>_borrower</code> and <code>_positionManager</code> parameters as <code>indexed</code>.</li>
+<li><code>IBorrowerOperations</code> event <code>FeeRecipientAddressChanged</code> can declare the <code>_feeRecipientAddress</code> input as <code>indexed</code>.</li>
+<li><code>IBorrowerOperations</code> event <code>FlashLoanSuccess</code> can declare the <code>_receiver</code> and <code>_token</code> inputs as `indexed.</li>
+<li><code>ICdpManagerData</code> event <code>Redemption</code> can declare the <code>_redeemer</code> input as <code>indexed</code>.</li>
+<li><code>IPriceFeed</code> event <code>FallbackCallerChanged</code> can declare the <code>_oldFallbackCaller</code> and <code>_newFallbackCaller</code> inputs as <code>indexed</code>.</li>
+<li><code>IPriceFeed</code> event <code>UnhealthyFallbackCaller</code> can declare the <code>_fallbackCaller</code> input as <code>indexed</code>.</li>
+</ul>
+<p><strong>Recommendation:</strong> Badger should consider renaming the event&#39;s parameters listed in the description as <code>indexed</code>.</p>
+<p><strong>BadgerDAO:</strong> Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>10/2/2023</time>
+          </div>
+          <div class="body"><p>@dapp-whisperer let&#39;s ask Basado as well</p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

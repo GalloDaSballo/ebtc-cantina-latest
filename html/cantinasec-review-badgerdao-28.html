@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>`PermitPositionManagerApproval` should use the correct type for the `status` parameter</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/28">cantinasec/review-badgerdao#28</a></span>
+        </p>
+        <h1>`PermitPositionManagerApproval` should use the correct type for the `status` parameter</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>9/24/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/BorrowerOperations.sol#L27-L30">BorrowerOperations.sol#L27-L30</a></p>
+<p><strong>Description:</strong></p>
+<p>The <code>status</code> parameter of the signature refers to the <code>enum PositionManagerApproval</code> value. The <code>Enum</code> type in Solidity can represent at max 256 values and are of type <code>uint8</code>.</p>
+<p>Consider to be consistent with the real type value of the <code>enum PositionManagerApproval</code> type, and change the <code>_PERMIT_POSITION_MANAGER_TYPEHASH</code> accordingly.</p>
+<p><strong>Recommendation:</strong></p>
+<p>Badger should consider updating the <code>_PERMIT_POSITION_MANAGER_TYPEHASH</code> to use <code>uint8</code> for the <code>status</code> signature parameter to match the native type of the <code>enum PositionManagerApproval</code>.</p>
+<p><strong>BadgerDao:</strong> Agree with fixing this, nonce is <code>uint8</code>. Fixed in <a href="https://github.com/ebtc-protocol/ebtc/commit/2ce7fe044bc6452474c14ab0477dd709e4149de9">commit 2ce7fe04 of <code>ebtc</code></a>. Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>10/2/2023</time>
+          </div>
+          <div class="body"><p>Agree with fixing this, nonce is uint8</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>10/2/2023</time>
+          </div>
+          <div class="body"><p>Fixed here: <a href="https://github.com/Badger-Finance/ebtc/pull/668/commits/2ce7fe044bc6452474c14ab0477dd709e4149de9">https://github.com/Badger-Finance/ebtc/pull/668/commits/2ce7fe044bc6452474c14ab0477dd709e4149de9</a></p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>10/3/2023</time>
+          </div>
+          <div class="body"><p>LGTM</p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

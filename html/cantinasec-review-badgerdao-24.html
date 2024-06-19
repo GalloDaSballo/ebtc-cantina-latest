@@ -1,0 +1,216 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>Outdated comments, error messages, naming across the codebase</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/24">cantinasec/review-badgerdao#24</a></span>
+        </p>
+        <h1>Outdated comments, error messages, naming across the codebase</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">dmitriia</a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/CdpManagerStorage.sol#L160-L163">CdpManagerStorage.sol#L160-L163</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/CdpManagerStorage.sol#L328-L331">CdpManagerStorage.sol#L328-L331</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/CdpManagerStorage.sol#L500-L502">CdpManagerStorage.sol#L500-L502</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/PriceFeed.sol#L783-L789">PriceFeed.sol#L783-L789</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/LeverageMacroBase.sol#L26">LeverageMacroBase.sol#L26</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/PriceFeed.sol#L789-L806">PriceFeed.sol#L789-L806</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/BorrowerOperations.sol#L439-L442">BorrowerOperations.sol#L439-L442</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/BorrowerOperations.sol#L81-L92">BorrowerOperations.sol#L81-L92)</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/BorrowerOperations.sol#L162-L165">BorrowerOperations.sol#L162-L165</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/BorrowerOperations.sol#L176-L178">BorrowerOperations.sol#L176-L178</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/BorrowerOperations.sol#L189-L191">BorrowerOperations.sol#L189-L191</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/BorrowerOperations.sol#L219-L223">BorrowerOperations.sol#L219-L223</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/BorrowerOperations.sol#L605-L624">BorrowerOperations.sol#L605-L624</a></p>
+<p><strong>Description:</strong> Comments, error messages, naming can be corrected, per list below.</p>
+<p><strong>Recommendation:</strong> <code>_closeCdpWithoutRemovingSortedCdps()</code> error message:</p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/CdpManagerStorage.sol#L160-L163">CdpManagerStorage.sol#L160-L163</a>:</li>
+</ul>
+<pre><code class="language-diff">  require(
+      closedStatus != Status.nonExistent &amp;&amp; closedStatus != Status.active,
+-     &quot;CdpManagerStorage: close non-exist or non-active CDP!&quot;
++     &quot;CdpManagerStorage: close non-exist or active CDP!&quot;
+  );
+</code></pre>
+<p>Check is already done in the only caller above, <code>_closeCdpWithoutRemovingSortedCdps()</code>:</p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/CdpManagerStorage.sol#L328-L331">CdpManagerStorage.sol#L328-L331</a>:</li>
+</ul>
+<pre><code class="language-diff">- require(
+-      cdpStatus != Status.nonExistent &amp;&amp; cdpStatus != Status.active,
+-     &quot;CdpManagerStorage: remove non-exist or non-active CDP!&quot;
+- );
+</code></pre>
+<p>Naming:</p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/CdpManagerStorage.sol#L500-L502">CdpManagerStorage.sol#L500-L502</a>:</li>
+</ul>
+<pre><code class="language-diff">- function _requireMoreThanOneCdpInSystem(uint CdpOwnersArrayLength) internal view {
++ function _requireMoreThanOneCdpInSystem(uint CdpIdsArrayLength) internal view {
+      require(
+-         CdpOwnersArrayLength &gt; 1 &amp;&amp; sortedCdps.getSize() &gt; 1,
++         CdpIdsArrayLength &gt; 1 &amp;&amp; sortedCdps.getSize() &gt; 1,
+          // ...
+</code></pre>
+<p><code>_formatClAggregateAnswer()</code> description can substitute <code>stETH:BTC</code> feed that aren&#39;t used with <code>stETH:ETH</code> one in <code>_stEthEthAnswer</code> and <code>_stEthEthDecimals</code> params:</p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/PriceFeed.sol#L783-L789">PriceFeed.sol#L783-L789</a>:</li>
+</ul>
+<pre><code class="language-solidity">// @notice Returns the price of stETH:BTC in 18 decimals denomination
+// @param _ethBtcAnswer CL price retrieve from ETH:BTC feed
+// @param _stEthEthAnswer CL price retrieve from stETH:BTC feed
+// @param _ethBtcDecimals ETH:BTC feed decimals
+// @param _stEthEthDecimals stETH:BTC feed decimalss
+// @return The aggregated calculated price for stETH:BTC
+function _formatClAggregateAnswer(
+    // ...
+</code></pre>
+<p>LeverageMacroBase can implement <code>IERC3156FlashBorrower</code>:</p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/LeverageMacroBase.sol#L26">LeverageMacroBase.sol#L26</a></li>
+</ul>
+<pre><code class="language-solidity">contract LeverageMacroBase {
+    // ...
+</code></pre>
+<p><code>_formatClAggregateAnswer()</code> logic can be simplified to:</p>
+<pre><code class="language-solidity">(uint256(_ethBtcAnswer) * uint256(_stEthEthAnswer) * LiquityMath.DECIMAL_PRECISION) /
+10 ** (_stEthEthDecimals + _ethBtcDecimals)
+</code></pre>
+<p>Current implementation is a bit more prone to overflows (can break when bigger decimals number exceeds <code>30</code>):</p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/PriceFeed.sol#L789-L806">PriceFeed.sol#L789-L806</a></li>
+</ul>
+<pre><code class="language-solidity">function _formatClAggregateAnswer(
+    int256 _ethBtcAnswer,
+    int256 _stEthEthAnswer,
+    uint8 _ethBtcDecimals,
+    uint8 _stEthEthDecimals
+) internal view returns (uint256) {
+    uint256 _decimalDenominator = _stEthEthDecimals &gt; _ethBtcDecimals
+        ? _stEthEthDecimals
+        : _ethBtcDecimals;
+    uint256 _scaledDecimal = _stEthEthDecimals &gt; _ethBtcDecimals
+        ? 10 ** (_stEthEthDecimals - _ethBtcDecimals)
+        : 10 ** (_ethBtcDecimals - _stEthEthDecimals);
+    return
+        (_scaledDecimal *
+            uint256(_ethBtcAnswer) *
+            uint256(_stEthEthAnswer) *
+            LiquityMath.DECIMAL_PRECISION) / 10 ** (_decimalDenominator * 2);
+}
+</code></pre>
+<p>These comments need to be removed or rewritten:</p>
+<p><code>closeCdp()</code> description:</p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/BorrowerOperations.sol#L439-L442">BorrowerOperations.sol#L439-L442</a>:</li>
+</ul>
+<pre><code class="language-diff">  /**
+- allows a borrower to repay all debt, withdraw all their collateral, and close their Cdp. Requires the borrower have a eBTC balance sufficient to repay their cdp&#39;s debt, excluding gas compensation - i.e. `(debt - 50)` eBTC.
++ allows a borrower to repay all debt, withdraw all their collateral, and close their Cdp.
+  */
+  function closeCdp(bytes32 _cdpId) external override {
+      // ...
+</code></pre>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/BorrowerOperations.sol#L81-L92">BorrowerOperations.sol#L81-L92</a></li>
+</ul>
+<pre><code class="language-solidity">constructor(
+    // ...
+) LiquityBase(_activePoolAddress, _priceFeedAddress, _collTokenAddress) {
+    // This makes impossible to open a cdp with zero withdrawn EBTC
+    // TODO: Re-evaluate this
+    // ...
+</code></pre>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/BorrowerOperations.sol#L162-L165">BorrowerOperations.sol#L162-L165</a></li>
+</ul>
+<pre><code class="language-solidity">/**
+Withdraws `_collWithdrawal` amount of collateral from the caller’s Cdp. Executes only if the user has an active Cdp, the withdrawal would not pull the user’s Cdp below the minimum collateralization ratio, and the resulting total collateralization ratio of the system is above 150%.
+*/
+function withdrawColl(
+    // ...
+</code></pre>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/BorrowerOperations.sol#L176-L178">BorrowerOperations.sol#L176-L178</a></li>
+</ul>
+<pre><code class="language-solidity">// ...
+Issues `_amount` of eBTC from the caller’s Cdp to the caller. Executes only if the Cdp&#39;s collateralization ratio would remain above the minimum, and the resulting total collateralization ratio is above 150%.
+ */
+function withdrawEBTC(
+    // ...
+</code></pre>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/BorrowerOperations.sol#L189-L191">BorrowerOperations.sol#L189-L191</a></li>
+</ul>
+<pre><code class="language-solidity">// ...
+repay `_amount` of eBTC to the caller’s Cdp, subject to leaving 50 debt in the Cdp (which corresponds to the 50 eBTC gas compensation).
+*/
+function repayEBTC(
+    // ...
+</code></pre>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/BorrowerOperations.sol#L219-L223">BorrowerOperations.sol#L219-L223</a></li>
+</ul>
+<pre><code class="language-solidity">/**
+enables a borrower to simultaneously change both their collateral and debt, subject to all the restrictions that apply to individual increases/decreases of each quantity with the following particularity: if the adjustment reduces the collateralization ratio of the Cdp, the function only executes if the resulting total collateralization ratio is above 150%. The borrower has to provide a `_maxFeePercentage` that he/she is willing to accept in case of a fee slippage, i.e. when a redemption transaction is processed first, driving up the issuance fee. The parameter is ignored if the debt is not increased with the transaction.
+*/
+// TODO optimization candidate
+function adjustCdpWithColl(
+// ...
+</code></pre>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/BorrowerOperations.sol#L605-L624">BorrowerOperations.sol#L605-L624</a></li>
+</ul>
+<pre><code class="language-solidity">function _requireValidAdjustmentInCurrentMode(
+    bool _isRecoveryMode,
+    uint _collWithdrawal,
+    bool _isDebtIncrease,
+    LocalVariables_adjustCdp memory _vars
+) internal view {
+    /*
+     *In Recovery Mode, only allow:
+     *
+     * - Pure collateral top-up
+     * - Pure debt repayment
+     * - Collateral top-up with debt repayment
+     * - A debt increase combined with a collateral top-up which makes the
+     * ICR &gt;= 150% and improves the ICR (and by extension improves the TCR).
+     *
+     * In Normal Mode, ensure:
+     *
+     * - The new ICR is above MCR
+     * - The adjustment won&#39;t pull the TCR below CCR
+     */
+</code></pre>
+<p><strong>BadgerDao:</strong> Some comments may still be off. Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>9/21/2023</time>
+          </div>
+          <div class="body"><p>Some comments may still be off</p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

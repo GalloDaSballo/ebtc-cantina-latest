@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>`EBTCToken.transferFrom` decrease the allowance of `(owner, spender)` even when the allowance is set to `type(uint256).max`</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/20">cantinasec/review-badgerdao#20</a></span>
+        </p>
+        <h1>`EBTCToken.transferFrom` decrease the allowance of `(owner, spender)` even when the allowance is set to `type(uint256).max`</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/EBTCToken.sol#L142-L144">EBTCToken.sol#L142-L144</a></p>
+<p><strong>Description:</strong> While it&#39;s not defined in the <a href="https://eips.ethereum.org/EIPS/eip-20">EIP-20</a>, it&#39;s a common implementation (see both OpenZeppelin and Solmate) that the <code>transferFrom</code> function of an <code>ERC20</code> token does not decrease the allowance of the spender when such allowance has been set to the max value <code>type(uint256).max</code>.</p>
+<p>The current implementation of <code>EBTCToken</code> does not follow this logic and decrease it by the <code>amount</code> transferred from the <code>sender</code> to the <code>recipient</code></p>
+<pre><code class="language-solidity">unchecked {
+    _approve(sender, msg.sender, cachedAllowances - amount);
+}
+</code></pre>
+<p>This behavior could create problems in contracts that are used to a more common behavior like the one used in OpenZeppelin/Solmate and have approved only once (without a way to update such value) the <code>EBTCToken</code>.
+The result is that at some point in the future, the <code>transferFrom</code> operation will revert because the <code>spender</code> would not have enough allowance anymore.</p>
+<p>A contract that is already keen to this problem is <code>LeverageMacroReference</code>, an immutable contract that executes <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroReference.sol#L39"><code>ebtcToken.approve(_borrowerOperationsAddress, type(uint256).max);</code></a> only once when the constructor is executed.</p>
+<p>At some point, an instance of the contract could not be able to perform operations like</p>
+<ul>
+<li>Adjusting the CDP (by repaying some <code>eBTC</code> debt).</li>
+<li>Close the CDP (by repaying all the CDP debt).</li>
+<li>Repaying the <code>eBTC</code> flashloaned <code>amount + fee</code>.</li>
+</ul>
+<p><strong>Recommendation:</strong> BadgerDAO should follow the same logic used by the OpenZeppelin/Solmate implementation of the ERC20 token: the <code>transferFrom</code> function should not update the <code>spender</code> allowance if such allowance is equal to <code>type(uint256).max</code>.</p>
+<p><strong>BadgerDao:</strong> Addressed in <a href="https://github.com/Badger-Finance/ebtc/pull/567">PR 567</a>.</p>
+<p><strong>Cantina:</strong> The recommendations have been implemented in <a href="https://github.com/Badger-Finance/ebtc/pull/567">PR 567</a>.
+A suggestion I could make is to move the check approval/update approval part of the code <strong>before</strong> <code>_transfer(sender, recipient, amount);</code>.</p>
+<p>From a logical/security point of the view <code>transferFrom</code> functions should follow these steps:</p>
+<ol>
+<li>verify that the spender has enough allowance.</li>
+<li>update the spender&#39;s allowance.</li>
+<li>transfer the tokens from <code>sender</code> to <code>receiver</code>.</li>
+</ol>
+<p><strong>BadgerDAO:</strong> Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body"><p><a href="https://github.com/Badger-Finance/ebtc/pull/567/files">https://github.com/Badger-Finance/ebtc/pull/567/files</a></p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>8/12/2023</time>
+          </div>
+          <div class="body"><p>The recommendations have been implemented in the PR <a href="https://github.com/Badger-Finance/ebtc/pull/567">https://github.com/Badger-Finance/ebtc/pull/567</a></p>
+<p>@GalloDaSballo a suggestion I could make is to move the check approval/update approval part of the code <strong>before</strong> <code>_transfer(sender, recipient, amount);</code>.</p>
+<p>From a logical/security point of the view <code>transferFrom</code> functions should follow these steps</p>
+<ol>
+<li>verify that the spender has enough allowance</li>
+<li>update the spender&#39;s allowance</li>
+<li>transfer the tokens from <code>sender</code> to <code>receiver</code></li>
+</ol>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

@@ -1,0 +1,134 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>Chainlink `priceFeed.getRoundData(lastRoundId - 1)` could return a "false broken" answer, triggering the primary oracle broken path</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge closed">closed</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/13">cantinasec/review-badgerdao#13</a></span>
+        </p>
+        <h1>Chainlink `priceFeed.getRoundData(lastRoundId - 1)` could return a "false broken" answer, triggering the primary oracle broken path</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>8/10/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/PriceFeed.sol#L723-L753">PriceFeed.sol#L723-L753</a></p>
+<p><strong>Description:</strong></p>
+<p>Useful links:</p>
+<ul>
+<li><a href="https://etherscan.deth.net/address/0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419">ETH/USD Proxy Price Feed</a></li>
+<li><a href="https://etherscan.deth.net/address/0xE62B71cf983019BFf55bC83B48601ce8419650CC">ETH/USD Price Aggregator used by the Proxy in this phase (phaseID 6)</a></li>
+<li><a href="https://docs.chain.link/data-feeds/historical-data">Official Chainlink Documentation about &quot;Getting Historical Data&quot;</a></li>
+</ul>
+<p>When the <code>PriceFeed</code> contracts execute the <code>fetchPrice</code> function, it gathers the current Chainlink response and the previous one by executing </p>
+<pre><code class="language-solidity">int256 ethBtcAnswer;
+        int256 stEthEthAnswer;
+        try ETH_BTC_CL_FEED.getRoundData(_currentRoundEthBtcId - 1) returns (
+            uint80 roundId,
+            int256 answer,
+            uint256,
+            /* startedAt */
+            uint256 timestamp,
+            uint80 /* answeredInRound */
+        ) {
+            ethBtcAnswer = answer;
+            prevChainlinkResponse.roundEthBtcId = roundId;
+            prevChainlinkResponse.timestampEthBtc = timestamp;
+        } catch {
+            // If call to Chainlink aggregator reverts, return a zero response with success = false
+            return prevChainlinkResponse;
+        }
+
+        try STETH_ETH_CL_FEED.getRoundData(_currentRoundStEthEthId - 1) returns (
+            uint80 roundId,
+            int256 answer,
+            uint256,
+            /* startedAt */
+            uint256 timestamp,
+            uint80 /* answeredInRound */
+        ) {
+            stEthEthAnswer = answer;
+            prevChainlinkResponse.roundStEthEthId = roundId;
+            prevChainlinkResponse.timestampStEthEth = timestamp;
+        } catch {
+            // If call to Chainlink aggregator reverts, return a zero response with success = false
+            return prevChainlinkResponse;
+        }
+</code></pre>
+<p>The <code>roundID</code> returned by <code>latestRoundData</code> and <code>getRoundData</code> is not the <code>roundID</code> of the Price Aggregator, but is the <code>roundID</code> of the Price Feed Proxy that internally will call the aggregator. </p>
+<p>The &quot;<code>proxyRoundId</code>&quot; is a composed value that internally store two information:</p>
+<ul>
+<li><code>phaseID</code>: which was the <code>phaseId</code> when the query was made. By knowing the phase, we can understand which is the aggregator that has been used</li>
+<li><code>aggregatorRoundId</code>: which is the internal <code>roundId</code> from which the price comes from. This makes sense only for the aggregator used in the phase</li>
+</ul>
+<p>There could be multiple cases where executing <code>priceFeed.getRoundData(currentProxyRoundId - 1)</code> will return an invalid answer</p>
+<ul>
+<li>the proxy has switched to a new <code>PriceAggregator</code> and the <code>phaseId</code> inside the Proxy has increased</li>
+<li>the <code>currentProxyRoundId - 1</code> would revert for underflow or return a wrong answer because <code>aggregatorRoundId</code> is equal to the first valid ID</li>
+</ul>
+<p>If the <code>currentProxyRoundId - 1</code> produces an invalid <code>roundId</code>, the Price Feed Proxy will return an invalid answer, but this does not mean that the <strong>real</strong> previous data on the proxy does not exist or that a <strong>real</strong> error has occurred. 
+In those cases, the <code>eBTC Price Feed</code> will interpret it as an exception and will not trust the Chainlink oracle, falling back to the <code>FallbackOracle</code> if available or returning the <code>lastGoodPrice</code> that, as we already mentioned in other issues, could be a <strong>stale price</strong>.</p>
+<p><strong>Recommendation:</strong></p>
+<p>Currently, there is not a clear way to easily and correctly retrieve the <strong>safe</strong> <code>previousRoundId</code>. 
+BadgerDAO should monitor those reverts event to understand if the revert was <strong>real</strong> or because of a misscalculation of the <code>previousRoundId</code> </p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>8/10/2023</time>
+          </div>
+          <div class="body"><p>Note: I&#39;m planning to talk to a Chainlink dev about this issue, but the meeting is scheduled in a couple of weeks. </p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body"><p>I&#39;m thinking this is a valid latent risk, but it seems like this will cause DOS for one round if chainlink upgrades</p>
+<p>It&#39;s worth figuring out if the DOS would be longer than a few hours and most importantly if the system would be able to recover from the DOS after the new set of RoundIDs are sequential</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body"><p>@GalloDaSballo I have moved the issue into the previous audit repository given that it was discovered and documented over there.</p>
+<p>Issue: <a href="https://github.com/spearbit-audits/review-badgerdao/issues/114">https://github.com/spearbit-audits/review-badgerdao/issues/114</a>
+GitHub Discussion I have created about <code>priceFeed.getRoundData</code>: <a href="https://github.com/spearbit-audits/review-badgerdao/discussions/110">https://github.com/spearbit-audits/review-badgerdao/discussions/110</a></p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

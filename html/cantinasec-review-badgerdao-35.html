@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>`SortedCdps` view functions `getCdpsOf`, `cdpCountOf`, `cdpOfOwnerByIndex` and `cdpOfOwnerByIdx` could return more information useful for the next pagination</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/35">cantinasec/review-badgerdao#35</a></span>
+        </p>
+        <h1>`SortedCdps` view functions `getCdpsOf`, `cdpCountOf`, `cdpOfOwnerByIndex` and `cdpOfOwnerByIdx` could return more information useful for the next pagination</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>9/26/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/SortedCdps.sol#L114-L171">SortedCdps.sol#L114-L171</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/SortedCdps.sol#L173-L214">SortedCdps.sol#L173-L214</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/SortedCdps.sol#L216-L285">SortedCdps.sol#L216-L285</a></p>
+<p><strong>Description:</strong></p>
+<p>The <code>cdpOfOwnerByIndex</code>, <code>cdpOfOwnerByIdx</code>, <code>_cdpOfOwnerByIndex</code>, <code>cdpCountOf</code>, <code>_cdpCountOf</code>, <code>getCdpsOf</code> and <code>_getCdpsOf</code> functions (with the different overloaded versions) have been added to the <code>SortedCdps</code> contract as a replaced for the removal of the state variables that were containing such information.</p>
+<p>These functions are meant to be used off-chain or on-chain, but by &quot;lens&quot; contracts and not directly by the core eBTC code.
+Because of the nature of the sorted linked list and the high probability to revert because of Out Of Gas exception, those functions support a &quot;paginated&quot; logic.</p>
+<p>The current version of the functions are not returning some information that could help the caller to prepare the needed parameters for the next iteration of the &quot;paginated&quot; query.</p>
+<ul>
+<li>Let&#39;s say that the sorted list contains 10k records and an integrator wants to know the number of CDPs owned by Alice.</li>
+<li>Given the high number of records, the integrator cannot specify <code>maxNodes = 0</code> otherwise the transaction will revert.</li>
+<li>Given that the integrator doesn&#39;t know the information about the first ID owned by Alice (the first CDP owned by Alice with the lower ICR of her CDPs) it needs to specify <code>startNodeId</code>.</li>
+<li>Note that the integrator must iterate the whole list because it does not know the number of CDPs owned by Alice (the information it&#39;s trying to retrieve) and in the worst-case scenario, the last of her CDPs could be the one positioned in the <code>head</code> (the one with higher ICR).</li>
+</ul>
+<p>At this point, the integrator will call <code>cdpCountOf(alice, dummyId, bigNumberOfIterationThatWillNotRevert)</code>. Let&#39;s say that it returns <code>X</code>. At this point, the integrator has to query for the next page of the iteration, but he does not know which <code>startNodeId</code> to pass as the off-set of the page.</p>
+<p>Note that <code>_cdpOfOwnerByIndex</code> should not revert when the <code>maxNodes</code> has been exceeded to correctly handle the paginated result information.</p>
+<p><strong>Recommendation:</strong> Badger should consider improving the returned values of the <code>cdpOfOwnerByIndex</code>, <code>cdpOfOwnerByIdx</code>, <code>_cdpOfOwnerByIndex</code>, <code>cdpCountOf</code>, <code>_cdpCountOf</code>, <code>getCdpsOf</code> and <code>_getCdpsOf</code> functions to allow the integrators to properly query the Sorted CDPs list in a paginated manner.</p>
+<p><strong>BadgerDAO:</strong> Fixed as suggested in <a href="https://github.com/Badger-Finance/ebtc/pull/671">PR 671</a>. Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/rayeaster">
+              rayeaster
+            </a>
+            <time>10/3/2023</time>
+          </div>
+          <div class="body"><p>fixed as suggested in PR <a href="https://github.com/Badger-Finance/ebtc/pull/671">https://github.com/Badger-Finance/ebtc/pull/671</a></p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

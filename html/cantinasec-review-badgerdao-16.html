@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>Use the correct function "State Mutability" when needed</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/16">cantinasec/review-badgerdao#16</a></span>
+        </p>
+        <h1>Use the correct function "State Mutability" when needed</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>8/10/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroBase.sol#L334">LeverageMacroBase.sol#L334</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroBase.sol#L423">LeverageMacroBase.sol#L423</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroBase.sol#L438">LeverageMacroBase.sol#L438</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroDelegateTarget.sol#L63">LeverageMacroDelegateTarget.sol#L63</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroReference.sol#L44">LeverageMacroReference.sol#L44</a></p>
+<p><strong>Description:</strong> Here&#39;s the list of the function that could be declared with a more specific and restrictive &quot;State Mutability&quot;:</p>
+<ul>
+<li><code>LeverageMacroBase.decodeFLData</code> can be declared as <code>pure</code>.</li>
+<li><code>LeverageMacroBase._doSwapChecks</code> can be declared as <code>view</code>.</li>
+<li><code>LeverageMacroBase._ensureNotSystem</code> can be declared as <code>view</code>.</li>
+<li><code>LeverageMacroDelegateTarget.owner</code> can be declared as <code>view</code>.</li>
+<li><code>LeverageMacroReference.owner</code> can be declared as <code>view</code>.</li>
+</ul>
+<p><strong>Recommendation:</strong> BadgerDAO should consider replacing the function &quot;state mutability&quot; property with the suggested one.</p>
+<p><strong>BadgerDao:</strong> Thinking of keeping it as is to ensure any odd future compatibility since the functions are &quot;developer only&quot;.</p>
+<p><strong>Cantina:</strong> Could you elaborate it more? Those functions cannot be overridden because they are not <code>virtual</code> so I&#39;m not understanding the &quot;odd future compatibility&quot; part.</p>
+<p><strong>BadgerDAO:</strong> Acknowledging as of now to avoid having to change this in the future.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/14/2023</time>
+          </div>
+          <div class="body"><p>Thinking of keeping it as is to ensure any odd future compatibility since the functions are &quot;developer only&quot;</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/14/2023</time>
+          </div>
+          <div class="body"><p>@dapp-whisperer wdyt?</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>8/15/2023</time>
+          </div>
+          <div class="body"><blockquote>
+<p>Thinking of keeping it as is to ensure any odd future compatibility since the functions are &quot;developer only&quot;</p>
+</blockquote>
+<p>Could you elaborate it more? Those functions cannot be overridden because they are not <code>virtual</code> so I&#39;m not understanding the &quot;odd future compatibility&quot; part</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>9/21/2023</time>
+          </div>
+          <div class="body"><p>Acknowledging as of now to avoid having to change this in the future</p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

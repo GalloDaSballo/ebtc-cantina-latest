@@ -1,0 +1,215 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>Possible confusion between borrower and delegatee when `CdpUpdated` events are emitted</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/31">cantinasec/review-badgerdao#31</a></span>
+        </p>
+        <h1>Possible confusion between borrower and delegatee when `CdpUpdated` events are emitted</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>9/24/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/BorrowerOperations.sol#L466-L472">BorrowerOperations.sol#L466-L472</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/BorrowerOperations.sol#L504C9-L504C9">BorrowerOperations.sol#L504C9-L504C9</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/BorrowerOperations.sol#L531">BorrowerOperations.sol#L531</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/BorrowerOperations.sol#L299">BorrowerOperations.sol#L299</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/feat/release-0.4/packages/contracts/contracts/BorrowerOperations.sol#L366">BorrowerOperations.sol#L366</a></p>
+<p><strong>Description:</strong></p>
+<p>The delegation system allows a delegate to execute three operations:</p>
+<ul>
+<li>Adjust CDP.</li>
+<li>Open CDP.</li>
+<li>Close CDP.</li>
+</ul>
+<p><strong>Open CDP</strong></p>
+<p>This operation executes :</p>
+<pre><code class="language-solidity">cdpManager.initializeCdp(
+    _cdpId,
+    vars.debt,
+    _netCollAsShares,
+    _liquidatorRewardShares,
+    _borrower
+);
+</code></pre>
+<p>That internally emit the event <code>CdpUpdated(_cdpId, _borrower, 0, 0, _debt, _coll, stake, CdpOperation.openCdp);</code>. In this case, the <code>_borrower</code> parameter of the event is the <code>_borrower</code> parameter passed as an input of the <code>_openCdp</code> function.</p>
+<p>In this case, the event parameter seems to represent who&#39;s the final user that will own the CDP.</p>
+<p><strong>Close CDP</strong></p>
+<p>This operation executes :</p>
+<pre><code class="language-solidity">cdpManager.syncAccounting(_cdpId);
+</code></pre>
+<p>That internally <strong>could</strong> emit the event:</p>
+<pre><code class="language-solidity">emit CdpUpdated(
+    _cdpId,
+    ISortedCdps(sortedCdps).getOwnerAddress(_cdpId),
+    prevDebt,
+    prevColl,
+    _newDebt,
+    prevColl,
+    Cdps[_cdpId].stake,
+    CdpOperation.syncAccounting
+);
+</code></pre>
+<p>In this case, the <code>_borrower</code> parameter of the event is <strong>always</strong> <code>ISortedCdps(sortedCdps).getOwnerAddress(_cdpId)</code>that represents the <strong>owner</strong> of the CDP and could be different compared to <code>msg.sender</code>. In this case, the event parameter represents the <strong>owner</strong> of the CDP.</p>
+<p>At the end of the flow, the <code>closeCdp</code> function executes:</p>
+<pre><code class="language-solidity">cdpManager.closeCdp(_cdpId, msg.sender, debt, coll);
+</code></pre>
+<p>That internally emit the event <code>CdpUpdated(_cdpId, _borrower, _debt, _coll, 0, 0, 0, CdpOperation.closeCdp)</code>. In this case, the <code>_borrower</code> parameter of the event is <strong>always</strong> <code>msg.sender</code>. In this case, the event parameter seems to represent who has provided the funds to repay the debt and close the CDP and <strong>not</strong> the owner of the CDP.</p>
+<p><strong>Adjust CDP</strong></p>
+<p>This operation executes:</p>
+<pre><code class="language-solidity">cdpManager.syncAccounting(_cdpId);
+</code></pre>
+<p>That internally <strong>could</strong> emit the event: </p>
+<pre><code class="language-solidity">emit CdpUpdated(
+    _cdpId,
+    ISortedCdps(sortedCdps).getOwnerAddress(_cdpId),
+    prevDebt,
+    prevColl,
+    _newDebt,
+    prevColl,
+    Cdps[_cdpId].stake,
+    CdpOperation.syncAccounting
+);
+</code></pre>
+<p>In this case, the <code>_borrower</code> parameter of the event is <strong>always</strong> <code>ISortedCdps(sortedCdps).getOwnerAddress(_cdpId)</code>that represents the <strong>owner</strong> of the CDP and could be different compared to <code>msg.sender</code>. In this case, the event parameter represents the <strong>owner</strong> of the CDP.</p>
+<p>At the end of the flow, the <code>_adjustCdpInternal</code> function executes:</p>
+<pre><code class="language-solidity">cdpManager.updateCdp(_cdpId, _borrower, vars.coll, vars.debt, vars.newColl, vars.newDebt);
+</code></pre>
+<p>That internally emits the event:</p>
+<pre><code class="language-solidity">emit CdpUpdated(
+    _cdpId,
+    _borrower,
+    _debt,
+    _coll,
+    _newDebt,
+    _newColl,
+    stake,
+    CdpOperation.adjustCdp
+);
+</code></pre>
+<p>In this case, the <code>_borrower</code> parameter of the event is the <strong>owner</strong> of the CDP retrieved by <code>_adjustCdpInternal</code> at the start of the flow by executing <code>sortedCdps.getOwnerAddress(_cdpId)</code>. In this case, the event parameter represents the owner of the CDP, even if the one that is adjusting the CDP (<code>msg.sender</code>) could be different from the owner.</p>
+<p><strong>Recommendation:</strong></p>
+<p>As shown in the description above, the <code>_borrower</code> parameter of the event <code>CdpUpdated</code> does not assume always the same meaning, and it is not always the borrower (owner of the CDP).</p>
+<p>Badger should consider refactoring those function to always pass to the event the owner of the CDP, or otherwise provide a specific explanation on why in some cases it assumes a value that is different from the CDP&#39;s owner.</p>
+<p><strong>BadgerDAO:</strong> A quick summary from above findings</p>
+<table>
+<thead>
+<tr>
+<th>operation</th>
+<th><code>_borrower</code> parameter in event <code>CdpUpdated</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>openCdp</td>
+<td>[CDP owner]</td>
+</tr>
+<tr>
+<td>closeCdp</td>
+<td><code>msg.sender</code> passed to <code>CdpManager.closeCdp()</code></td>
+</tr>
+<tr>
+<td>adjustCdp</td>
+<td>[CDP owner]</td>
+</tr>
+</tbody></table>
+<p>Note that <code>CdpUpdated</code> emit by <code>CdpManager.syncAccounting()</code> <strong>always</strong> use [CDP owner] for <code>_borrower</code>.</p>
+<p>Do we agree that to make it consistent by replacing <code>msg.sender</code> in <code>BorrowerOperations.closeCdp()</code> with [CDP owner]?</p>
+<pre><code class="language-diff">-- cdpManager.closeCdp(_cdpId, msg.sender, debt, coll);
+++ cdpManager.closeCdp(_cdpId, _borrower, debt, coll);
+</code></pre>
+<p><code>msg.sender</code> is better because we can get the <code>Owner</code> via theGraph binding in the event handler. Wisdom says just add both to the event.</p>
+<p>Doing CDP owner in <a href="https://github.com/ebtc-protocol/ebtc/pull/688">PR 688</a>.</p>
+<p>Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/rayeaster">
+              rayeaster
+            </a>
+            <time>9/29/2023</time>
+          </div>
+          <div class="body"><p>a quick summary from above findings</p>
+<table>
+<thead>
+<tr>
+<th>operation</th>
+<th><code>_borrower</code> parameter in event <code>CdpUpdated</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>openCdp</td>
+<td>[CDP owner]</td>
+</tr>
+<tr>
+<td>closeCdp</td>
+<td><code>msg.sender</code> passed to <code>CdpManager.closeCdp()</code></td>
+</tr>
+<tr>
+<td>adjustCdp</td>
+<td>[CDP owner]</td>
+</tr>
+</tbody></table>
+<p>Note that <code>CdpUpdated</code> emit by <code>CdpManager.syncAccounting()</code> <strong>always</strong> use [CDP owner] for <code>_borrower</code></p>
+<p>@dapp-whisperer do we agree that to make it consistent by replacing <code>msg.sender</code> in <code>BorrowerOperations.closeCdp()</code> with [CDP owner]?</p>
+<pre><code class="language-diff">-- cdpManager.closeCdp(_cdpId, msg.sender, debt, coll);
+++ cdpManager.closeCdp(_cdpId, _borrower, debt, coll);
+</code></pre>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>10/2/2023</time>
+          </div>
+          <div class="body"><p>@dapp-whisperer should ask Basado here</p>
+<p>2 cents are that msg.sender is better because we can get the Owner via theGraph binding in the event handler</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>10/2/2023</time>
+          </div>
+          <div class="body"><p>Wisdom says just add both to the event</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dapp-whisperer">
+              dapp-whisperer
+            </a>
+            <time>10/11/2023</time>
+          </div>
+          <div class="body"><p>doing [CDP owner] </p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

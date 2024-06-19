@@ -1,0 +1,126 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>EIP-3156 requires `flashFee()` and `maxFlashLoan()` to accommodate their logic to `flashLoansPaused` flag</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/18">cantinasec/review-badgerdao#18</a></span>
+        </p>
+        <h1>EIP-3156 requires `flashFee()` and `maxFlashLoan()` to accommodate their logic to `flashLoansPaused` flag</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">dmitriia</a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/BorrowerOperations.sol#L816-L828">BorrowerOperations.sol#L816-L828</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/ActivePool.sol#L311-L332">ActivePool.sol#L311-L332</a></p>
+<p><strong>Description:</strong> Per <a href="https://eips.ethereum.org/EIPS/eip-3156#lender-specification">ERC-3156</a> <code>flashFee()</code> can revert, while <code>maxFlashLoan()</code> can return <code>0</code> when <code>flashLoansPaused == true</code>:</p>
+<blockquote>
+<p>The maxFlashLoan function MUST return the maximum loan possible for token. If a token is not currently supported maxFlashLoan MUST return 0, instead of reverting.</p>
+</blockquote>
+<blockquote>
+<p>The flashFee function MUST return the fee charged for a loan of amount token. If the token is not supported flashFee MUST revert.</p>
+</blockquote>
+<p>Now the flag is ignored in the logic:</p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/BorrowerOperations.sol#L816-L828">BorrowerOperations.sol#L816-L828</a></li>
+</ul>
+<pre><code class="language-solidity">    function flashFee(address token, uint256 amount) public view override returns (uint256) {
+        require(token == address(ebtcToken), &quot;BorrowerOperations: EBTC Only&quot;);
+
+        return (amount * feeBps) / MAX_BPS;
+    }
+
+    /// @dev Max flashloan, exclusively in ETH equals to the current balance
+    function maxFlashLoan(address token) public view override returns (uint256) {
+        if (token != address(ebtcToken)) {
+            return 0;
+        }
+        return type(uint112).max;
+    }
+</code></pre>
+<p>On the same grounds as eBTC, <code>flashFee()</code> and <code>maxFlashLoan()</code> need to change their behavior when <code>flashLoansPaused == true</code> for ActivePool&#39;s stETH flash loans.</p>
+<p>Impact: in both cases flash loan logic do not comply with EIP-3156 when <code>flashLoansPaused</code> is on, which can break the integrations.</p>
+<p><strong>Recommendation:</strong> <code>flashFee()</code> can revert, while <code>maxFlashLoan()</code> can return <code>0</code> when <code>flashLoansPaused == true</code> in both cases.</p>
+<p><strong>BadgerDao:</strong> Addressed in <a href="https://github.com/ebtc-protocol/ebtc/pull/574">PR 574</a>.</p>
+<p><strong>Cantina:</strong> The recommendations have been implemented in <a href="https://github.com/ebtc-protocol/ebtc/pull/574">PR 574</a>.</p>
+<p><strong>BadgerDAO:</strong> Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/14/2023</time>
+          </div>
+          <div class="body"><p><a href="https://github.com/Badger-Finance/ebtc/pull/574">https://github.com/Badger-Finance/ebtc/pull/574</a></p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>8/15/2023</time>
+          </div>
+          <div class="body"><p>The recommendations have been implemented in the PR <a href="https://github.com/Badger-Finance/ebtc/pull/574">https://github.com/Badger-Finance/ebtc/pull/574</a></p>
+<p>@GalloDaSballo ping me when you merge the PR, so I can update the issue body+status</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dapp-whisperer">
+              dapp-whisperer
+            </a>
+            <time>8/18/2023</time>
+          </div>
+          <div class="body"><p>we&#39;re merging @StErMi </p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">
+              dmitriia
+            </a>
+            <time>9/21/2023</time>
+          </div>
+          <div class="body"><p>Fix looks ok</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>9/21/2023</time>
+          </div>
+          <div class="body"><p>LGTM</p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

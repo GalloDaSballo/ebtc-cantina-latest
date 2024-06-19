@@ -1,0 +1,545 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>Allowing the creation of "dust CDPs" could lead redeemers/liquidators to be not profitable or not wanting to perform the operation</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/14">cantinasec/review-badgerdao#14</a></span>
+        </p>
+        <h1>Allowing the creation of "dust CDPs" could lead redeemers/liquidators to be not profitable or not wanting to perform the operation</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>8/10/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/BorrowerOperations.sol#L324-L329">BorrowerOperations.sol#L324-L329</a>, <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LiquidationLibrary.sol#L365-L370">LiquidationLibrary.sol#L365-L370</a></p>
+<p><strong>Description:</strong> When <code>collateral.getPooledEthByShares(DECIMAL_PRECISION) &lt; DECIMAL_PRECISION</code> both the <code>BorrowerOperations._adjustCdpInternal</code> and <code>LiquidationLibrary._liquidateCDPPartially</code> allow the <code>collateral</code> balance of the CDP to go below the constant <code>MIN_NET_COLL</code> value of <code>2 stETH</code>.</p>
+<p>This allows the possibility (voluntarily or involuntarily) to generate (by adjusting or partially liquidating CDPs) &quot;dust CDPs&quot; where the collateral and debt amount of the CDP is very low (dust level).</p>
+<p>When those &quot;dust CDPs&quot; exists inside the protocol, the following scenarios could happen:</p>
+<ul>
+<li>Redeemers (that, unlike liquidators, will not get the <code>LIQUIDATOR_REWARD</code> and can&#39;t directly choose the CDPs from which they want to redeem from) could incur in loss (collateral receives is less valuable than the gas cost of the operation) or simply decide that the operation is not worth the gas cost.</li>
+<li>Liquidators, depending on <code>stETH share value</code> and gas cost, could incur in a loss or simply decide that the operation is not worth.</li>
+</ul>
+<p>Let&#39;s review how it&#39;s possible to create such &quot;dust CDPs&quot; and why redemptions and liquidations operations could not be profitable.</p>
+<p><strong>Create &quot;dust CDP&quot; by leveraging <code>BorrowerOperations._adjustCdpInternal</code></strong></p>
+<p>In this scenario, the user/attacker creates a &quot;dust CDP&quot; by using adjusting the CDP coll/debt via the <code>BorrowerOperations._adjustCdpInternal</code> operation.</p>
+<p>Let&#39;s set up an initial scenario just to showcase the test:</p>
+<ul>
+<li><code>1 BTC = 15 stETH &lt;&gt; 1 stETH = ~0,066666666 BTC</code>.</li>
+<li><code>1 stETH = 1 ETH</code>.</li>
+<li><code>1 stETH share = 1 stETH</code>.</li>
+</ul>
+<ol>
+<li>The protocol has some whale CDP opened with coll/debt ratio very high, this allows us to have <code>TCR &gt;&gt; CCR</code> just to be sure that we are in &quot;normal mode&quot; and that the next events do not trigger the &quot;recovery mode&quot;.</li>
+<li><code>Alice</code> creates a CDP with a coll/debt ratio equal to <code>~MMCR</code>. In our example, she creates a CDP with:<ol>
+<li><code>collateral = 10 stETH</code> (that is equal to <code>10 ether</code> of <code>stETH shares</code>).</li>
+<li><code>debt = 0,606060606060606054 ether</code> of <code>eBTC</code>.</li>
+</ol>
+</li>
+<li>Lido validators get slashed/incur penalties and <code>1 stETH shares = 1 stETH - 1 wei</code>. The share value has decreased of just <code>1 wei</code>.</li>
+<li>At this point <code>Alice</code> would be liquidable, but it is not relevant because she promptly performs the following action:<ol>
+<li>She repays most of her debt, leaving only <code>0.0000001 ether</code> of debt in her CDP. This was just an example number, she could go further down as much as she wants.</li>
+<li>She withdraws as much of collateral as possible. The amount of collateral she can withdraw depends mostly on the debt she still has in her CDP because at the end of the operation the <code>ICR</code> must always be <code>&gt; MCR</code>. </li>
+</ol>
+</li>
+</ol>
+<p>At the end of the scenario setup, Alice&#39;s CDP will be as follows:</p>
+<ul>
+<li><code>coll = 0,000001650000000002</code> of <code>stETH shares</code>.</li>
+<li><code>debt = 0,0000001</code> of eBTC.</li>
+<li><code>ICR = 1100000000000666655</code> that is still <code>~&gt; MCR</code>.</li>
+<li>Her CDP is <strong>not liquidable</strong> at this time.</li>
+</ul>
+<p>Note that it is also possible to create &quot;dust CDPs&quot; by executing a partial liquidation.</p>
+<p><strong>Consequences on Redemption</strong></p>
+<p>When user call <code>CdpManager.redeemCollateral</code> they specify the amount of <code>eBTC</code> that they want to redeem for <code>collateral</code>. The execution will iterate over all the CDPs that are <strong>not liquidable</strong> starting from the CDP with <strong>lower</strong> ICR but still <code>ICR &gt;= MCR</code>.</p>
+<p>For each CDP, the redeemer will receive an amount of collateral (in <code>stETH shares</code>) equal to <code>collateral.getSharesByPooledEth( (singleRedemption.eBtcToRedeem * DECIMAL_PRECISION ) / _redeemColFromCdp._price )</code>.</p>
+<p>The redemption of the CDP can be <strong>full</strong> (CDP is closed) or <strong>partial</strong>, depending on the <code>CDP.debt</code> and the amount of remaining <code>eBTC</code> provided to redeem from the protocol.</p>
+<p>Note 1: As opposed to a liquidation operation, the redeemer will <strong>not receive</strong> the gas stipend and will need to <strong>pay</strong> a <strong>fee</strong> on top of the collateral received (min <code>0.5%</code>, max <code>100%</code>).
+Note 2: As opposed to a liquidation operation, the redeemer <strong>cannot</strong> specify which CDPs they want to redeem from, they will always redeem from the CDP with lower ICR that is still above MCR.</p>
+<p>If the amount of <code>stETH shares</code> received by the redeemer is less than the gas spent to execute the redeem operation, there are two consequences:</p>
+<ol>
+<li>The redeemer will lose money on the operation.</li>
+<li>The redeemer won&#39;t perform the operation because it will lose money. The redeem operation is part of the soft-peg system of eBTC.</li>
+</ol>
+<p><strong>Can the redeem operation not be profitable?</strong></p>
+<p>@GalloDaSballo stated that the <code>redeemCollateral</code> operation should cost:</p>
+<ul>
+<li><code>138k</code> gas units on avg.</li>
+<li><code>256k</code> gas units on max.</li>
+</ul>
+<p>Let&#39;s assume the user calls <code>CdpManager.redeemCollateral</code> with an amount of eBTC enough just to redeem from the first available CDP to be redeemed from (we can generalize that more or less the cost to redeem fully 100 CDPs is equal to the same amount multiplied by 100).</p>
+<p>The operation would cost:</p>
+<ul>
+<li>avg gas used <code>138k</code>, <code>150 gwei</code> gas cost → <code>0,0207 ETH</code>.</li>
+<li>max gas used <code>256k</code>, <code>150 gwei</code> gas cost  → <code>0,0384 ETH</code>.</li>
+<li>avg gas used <code>138k</code>, <code>300 gwei</code> gas cost → <code>0,0414 ETH</code>.</li>
+<li>max gas used <code>256k</code>, <code>300 gwei</code> gas cost  → <code>0,0768 ETH</code>.</li>
+</ul>
+<p>Let&#39;s assume that: </p>
+<ul>
+<li><code>1 BTC = 15 stETH &lt;&gt; 1 stETH = ~0,066666666 BTC</code>.</li>
+<li><code>1 stETH = 1 ETH</code>.</li>
+<li><code>stETH share</code> drops to <code>1 ether - 1 wei</code> just to simulate the scenario.</li>
+<li>assume that Badger does not have a fee on redemption (just to simplify things). The fee would just make the situation for the redeemer worst, if we are not profitable without the fee, we would not be profitable with the fee as well.</li>
+</ul>
+<p>Let&#39;s use the data from the first scenario where to perform the operation we will use <code>138k gas</code> and that gas costs <code>~150 gwei</code>.</p>
+<p>To be profitable (and probably it&#39;s not enough because after the redemption you want to do something with those shares like swapping them, repaying a flashloan and so on) the amount of <code>stETH</code> shares that you need to receive must be greater than <code>0,0207 ETH</code>. </p>
+<p>This means that <code>collateral.getSharesByPooledEth(cdp.debt * DECIMAL_PRECISION / price)</code> → <code>collateral.getSharesByPooledEth(cdp.debt * 1 ether / ~0,066666666 ether)</code> must be <code>&gt;= ~0,0207 ETH</code> of <code>stETH shares</code></p>
+<p>Just to simply things, let&#39;s assume that Badger does not take a cut on that collateral (as we said, it takes a fee that goes from a min of <code>0.5%</code> to <code>100%</code>).</p>
+<p>To be profitable (collateral received is greater than gas spent) the redeemer should need to receive at least <code>0,0207 ETH</code> so it would have to be able to redeem at least <code>0,0207 * 0,066666666</code> BTC of debt <code>== 0,00138 BTC</code>.</p>
+<p>Is it possible to adjust a CDP in a way that: </p>
+<ul>
+<li>ICR is very near MCR (not liquidable, but will be selected first when redemptions happen).</li>
+<li>Very low (dust level) amount of debt.</li>
+</ul>
+<p>In the setup of the scenario, we have shown (and demonstrated in the foundry test at the very end) that it is possible to generate a &quot;dust CDP&quot; by executing adjusting the CDP balance. In the example, <code>Alice</code> was able to bring down the debt (and withdraw as much collateral as possible) to <code>0,0000001</code> of <code>eBTC</code> (note that she could have reduced even more the debt, aggravating the &quot;dust level&quot; of the CDP).</p>
+<p>The result will be that the redeemer will pay (when gas is at <code>~150 gwei</code>) <code>~0,0207 ETH</code> to redeem <code>0,0000001 ether</code> of eBTC for <code>0,000001492499981999 ether</code> of <code>stETH shares</code>.</p>
+<p><strong>Consequences on Liquidation</strong></p>
+<p>The liquidation process is less affected by the &quot;dust CDP&quot; situation for different reason, but it can anyway lead to situations where:</p>
+<ul>
+<li>The liquidator does not yield any profit from the liquidation (neutral result or loss of funds because of gas cost).</li>
+<li>The liquidator does not execute liquidation at all because there would be no profit (this is bad for the protocol).</li>
+</ul>
+<p>The Liquidation scenario is less affected because:</p>
+<ol>
+<li>Liquidator does get a <code>GAS STIPEND</code> of <code>0.2 stETH</code> by fully liquidating the CDP. This <code>GAS STIPEND</code> is not rewarded if the liquidator performs a <strong>partial liquidation</strong>, and at this point we return to a situation similar to the redemption one.</li>
+<li>Liquidators can choose which CDP they want to liquidate by specifying a single CDP or an array of CDPs.</li>
+</ol>
+<p><strong>Can the liquidation operation not be profitable?</strong></p>
+<p>Because the &quot;dust CDP&quot; has a tiny amount of collateral, it&#39;s safe to assume that the premium that the liquidator gets back from the liquidation process will not influence in the overall profitability of the operation.</p>
+<p>We can state that the operation is not profitable when the <code>GAS STIPEND</code> is <strong>not enough</strong> to cover the gas cost of the transaction. This is influenced by two factors:</p>
+<ol>
+<li>The <strong>real</strong> value of the <code>GAS STIPEND</code>. When a user opens a CDP, he needs to &quot;pay&quot; an additional <code>GAS STIPEND</code> that is equal to <code>0.2 stETH</code>. Those <code>0.2 stETH</code> are converted to <code>stETH shares</code> when the CDP is opened. The <strong>real</strong> value of those shares could end up not being <code>0.2 stETH</code> when it&#39;s returned to the liquidator because it depends on the current (at liquidation time) value of those shares. If the value has decreased (because of slashing/penalties on Lido) compared to the value at the time of the creation of the CDP (involved in the liquidation process) the liquidator will receive less than <code>0.2 stETH</code>. We also need to take in consideration that <code>stETH</code> is not always perfectly pegged to <code>ETH</code> and there have been cases where <code>stETH</code> was worth less than <code>ETH</code> (~7% less).</li>
+<li>Gas price. Another factor to take in consideration is the gas price to execute the &quot;direct&quot; liquidation or the &quot;MEV&quot; liquidation (that could involve more complex operations like flashloaning, pre/post swaps, transfers and so on).</li>
+</ol>
+<p><strong>Liquidation Scenario 1: <code>stETH:BTC</code> price decrease, <code>stETH share</code> value remain the same</strong></p>
+<p>In the first scenario, we reduce the <code>stETH:BTC</code> price by a tiny fraction just to make <code>Alice</code> CDP be liquidable. </p>
+<p><code>Alice</code> CDP:</p>
+<ul>
+<li><code>coll = 0,000001650000000002</code> shares equal to <code>0,000001650000000001</code> of <code>stETH</code>.</li>
+<li><code>debt = 0,0000001</code> of <code>eBTC</code>.</li>
+</ul>
+<p>After the liquidation, the liquidator has collected <code>0,20000165 stETH</code>.</p>
+<p>In this scenario, the <code>GAS STIPEND</code> rewarded to the liquidator is mostly the same as the one supplied by <code>Alice</code> at the CDP opening (share value has decreased by just <code>1 wei</code> in the meanwhile). This means that in this very specific case, the profitability of the operation depends on mostly by the gas cost of the execution itself.</p>
+<p>From an <a href="https://github.com/Badger-Finance/ebtc/issues/271">analysis made by the Badger team</a>, the gas consumption of a &quot;MEV Liquidation&quot; is around <code>650325 units of gas</code>.</p>
+<ul>
+<li>with gas cost of <code>~150 gwei</code> the liquidation would cost <code>~0.1 ETH</code>.</li>
+<li>with gas cost of <code>~300 gwei</code> the liquidation would cost <code>~0.2 ETH</code>.</li>
+</ul>
+<p>With the gas cost of <code>~300 gwei</code>  we are at the very limit of not being cost neutral, and we are not taking in consideration that the <code>stETH:ETH</code> could not be pegged or that the general value of <code>stETH</code> in the market has decreased.</p>
+<p><strong>Liquidation Scenario 2: <code>stETH:BTC</code> remains the same, <code>stETH share</code> value decreases</strong></p>
+<p>In this scenario, the <code>stETH share</code> value has decreased because of a slash/penalty event on Lido. <code>1 stETH share</code> is now worth <code>0.9 stETH</code>. The price of <code>stETH:BTC</code> remain the same.</p>
+<p>Because of the decrease in the share value, we are in this situation:</p>
+<ul>
+<li><code>Alice</code> CDP <code>liquidatorRewardShares</code> <strong>before</strong> the slash was worth <code>~0.2 stETH</code>.</li>
+<li><code>Alice</code> CDP <code>liquidatorRewardShares</code> <strong>after</strong> the slash is worth <code>~0,18 stETH</code>.</li>
+</ul>
+<p>At the end of the liquidation process, the <code>liquidator</code> has received <code>~0,180001485</code> of <code>stETH</code> (gas stipend + collateral liquidated).</p>
+<p>Compared to Scenario 1, in the Scenario 2 the gas price influences even more the profitability of the liquidation operation. If the gas cost to liquidate Alice&#39;s CDP is higher than <code>~0,180001485</code>  <code>stETH</code> the operation will only be a cost for the liquidator.</p>
+<p><strong>Test</strong></p>
+<pre><code class="language-solidity">// SPDX-License-Identifier: UNLICENSED
+pragma solidity 0.8.17;
+import &quot;forge-std/Test.sol&quot;;
+import {eBTCBaseInvariants} from &quot;./BaseInvariants.sol&quot;;
+
+contract FAdjustDustCDPTest is eBTCBaseInvariants {
+    uint256 public constant MCR = 1100000000000000000; // 110%
+    uint256 public constant DECIMAL_PRECISION = 1 ether;
+    uint256 public constant MIN_COLLAERAL_SIZE = 2 ether;
+    uint256 public constant GAS_STIPEND = 0.2 ether;
+
+    address user1;
+    address user2;
+    bytes32 cdp1;
+    bytes32 cdp2;
+
+    function setUp() public override {
+        super.setUp();
+
+        // current value of the shares on lido (more or less)
+        collateral.setEthPerShare(1 ether);
+        priceFeedMock.setPrice((1 ether * DECIMAL_PRECISION) / 15 ether);
+
+        connectCoreContracts();
+        connectLQTYContractsToCore();
+    }
+
+    /// @notice the scope of this funcion is to prepare the test scenario
+    /// 1) Warp at least 14 days to enable the redeem operation
+    /// 2) Create two users with funds to open CDPs
+    /// 3) First user open a CDP as a whale providing a lot of collateral to bring up TCR
+    /// 4) Second user open a CDP with ICR ~= MCR
+    /// 5) Eth Per Share goes from 1 ether -&gt; 1 ether - 1 wei just to trigger the scenario
+    /// 6) Second user adjust it&#39;s CDP to create a &quot;dust CDP&quot;
+    function _createDustCDPFromAdjust(uint256 finalDustDebt) public {
+        vm.warp(block.timestamp + 30 days);
+
+        // let&#39;s say that I open a cdp with the minimum amount
+        address payable[] memory users;
+        users = _utils.createUsers(2);
+        user1 = users[0];
+        user2 = users[1];
+
+        vm.label(user1, &quot;user_1&quot;);
+        vm.label(user2, &quot;user_2&quot;);
+
+        _dealCollateralAndPrepForUse(user1);
+        _dealCollateralAndPrepForUse(user2);
+
+        // let&#39;s say that we have a big whale that open a CDP
+        // to bring the TCR high
+        vm.startPrank(user1);
+        uint256 borrowedAmount = _utils.calculateBorrowAmount(
+            100 ether,
+            priceFeedMock.fetchPrice(),
+            COLLATERAL_RATIO
+        );
+        cdp1 = borrowerOperations.openCdp(borrowedAmount, &quot;hint&quot;, &quot;hint&quot;, 400 ether + GAS_STIPEND);
+        vm.stopPrank();
+
+        // user2 open the CDP just abobe MCR
+        vm.startPrank(user2);
+        borrowedAmount = _utils.calculateBorrowAmount(
+            10 ether,
+            priceFeedMock.fetchPrice(),
+            MINIMAL_COLLATERAL_RATIO
+        );
+        cdp2 = borrowerOperations.openCdp(borrowedAmount, &quot;hint&quot;, &quot;hint&quot;, 10 ether + GAS_STIPEND);
+
+        // share value decrease sub 1 ether
+        collateral.setEthPerShare(1 ether - 1);
+
+        // redeem and withdraw the max possible amount
+        // how much do we want to leave as debt? the min possible?
+        (uint256 cdp2Debt, uint256 cdp2Coll, ) = cdpManager.getEntireDebtAndColl(cdp2);
+        uint256 removedDebt = cdp2Debt - finalDustDebt;
+        borrowerOperations.repayEBTC(cdp2, removedDebt, &quot;&quot;, &quot;&quot;);
+
+        (cdp2Debt, cdp2Coll, ) = cdpManager.getEntireDebtAndColl(cdp2);
+        uint256 maxWithdrawColl = maxWithdraw(cdp2Coll, cdp2Debt);
+        borrowerOperations.withdrawColl(cdp2, maxWithdrawColl, &quot;&quot;, &quot;&quot;);
+
+        vm.stopPrank();
+    }
+
+    function testLiquidationNotProfitable() public {
+        _createDustCDPFromAdjust(0.0000001 ether);
+
+        // let&#39;s try to just fully liquidate it
+        address liquidator = makeAddr(&quot;liquidator&quot;);
+
+        (uint256 cdp2Debt, uint256 cdp2Coll, ) = cdpManager.getEntireDebtAndColl(cdp2);
+        // send to redeemer just what&#39;s needed to fully redeem cdp2
+        vm.prank(user1);
+        eBTCToken.transfer(liquidator, cdp2Debt);
+
+        ////////////////////////////////////////////////////////////////////////
+        ////////////////////////////////////////////////////////////////////////
+        // SUBSCENARIO 1: oracle price decrease, stETH share value does not decrease anymore
+        // In this scenario as long as gas price are lower than 310 gwei the
+        // operation should be still neutral/positive from a profit prospective
+        // This depends also on the stETH price and peg to ETH
+        // The Liquidator receive more or less ONLY the GAS STIPEND of ~0.2 stETH
+        ////////////////////////////////////////////////////////////////////////
+        ////////////////////////////////////////////////////////////////////////
+
+        uint256 snapshot = vm.snapshot();
+
+        // let&#39;s say that the price decrese just to make it liquidable
+        priceFeedMock.setPrice(priceFeedMock.fetchPrice() - 0.0000000000001 ether);
+
+        // In this case the liquidator is still profittable just because
+        CdpInfo memory cdp2Before = getCdpInfo(cdp2);
+        vm.prank(liquidator);
+        cdpManager.liquidate(cdp2);
+
+        CdpInfo memory cdp2After = getCdpInfo(cdp2);
+        UserBalance memory liquidatorAfter = getUserBalance(liquidator);
+
+        assertEq(liquidatorAfter.debt, 0);
+
+        // note that cdp2 stETH collateral was just ~0,000001650000000001 stETH
+        // that more or less are worth ~€0,002768007
+        assertApproxEqAbs(liquidatorAfter.coll, GAS_STIPEND + cdp2Before.collStETH, 1);
+
+        // Assert that cdp2 has been fully liquidated
+        assertEq(cdp2After.status, 3); // closedByLiquidation
+
+        vm.revertTo(snapshot);
+
+        ////////////////////////////////////////////////////////////////////////
+        ////////////////////////////////////////////////////////////////////////
+        // SUBSCENARIO 2: oracle price decrease, stETH share value decrease even more
+        // The main difference in this scenario is that the stETH shares
+        // (used by protocol for accounting) are worth less (compared to scenario 1)
+        // This influence not only how much is worth the collateral you are gaining from the liquidation
+        // but also the GAS STIPEND that you gain from the full liquidation
+        // The GAS STIPEND is equal to `0.2 stETH` but at the time that the CDP (liquidated) was opened
+        // if during this period the `stETH share` has decreased in value, also the GAS STIPEND
+        // (that is denominated in converted shares) has decreased in value
+        // This mean that the liquidator will receive less than `0.2 stETH` for the GAS STIPEND
+        ////////////////////////////////////////////////////////////////////////
+        ////////////////////////////////////////////////////////////////////////
+
+        // bring the stETH share value down more to prove our scenario
+        collateral.setEthPerShare(0.9 ether);
+
+        // Liquidation is much less profittable and gas cost to execute the transaction could
+        // be above the gas stipend (because now stETH share is less valuable)
+        cdp2Before = getCdpInfo(cdp2);
+        vm.prank(liquidator);
+        cdpManager.liquidate(cdp2);
+
+        cdp2After = getCdpInfo(cdp2);
+        liquidatorAfter = getUserBalance(liquidator);
+
+        // Assert that the profit from the liquidation is less than the GAS STIPEND
+        assertLt(liquidatorAfter.coll, GAS_STIPEND);
+
+        // Assert that cdp2 has been fully liquidated
+        assertEq(cdp2After.status, 3); // closedByLiquidation
+    }
+
+    function testRedeemNotProfitable() public {
+        _createDustCDPFromAdjust(0.0000001 ether);
+
+        // let&#39;s make things easier to track by having a separate redeemer user
+        // that holds 0 collateral and just the amount of eBTC needed to fully redeem CDP2
+        (uint256 cdp2Debt, uint256 cdp2Coll, ) = cdpManager.getEntireDebtAndColl(cdp2);
+
+        address redeemer = makeAddr(&quot;redeemer&quot;);
+
+        // send to redeemer just what&#39;s needed to fully redeem cdp2
+        vm.prank(user1);
+        eBTCToken.transfer(redeemer, cdp2Debt);
+
+        // prepare variables for later asserts
+        UserBalance memory redeemerBefore = getUserBalance(redeemer);
+        CdpInfo memory cdp1Before = getCdpInfo(cdp1);
+
+        // perform the redeem of CDP2
+        vm.prank(redeemer);
+        cdpManager.redeemCollateral(cdp2Debt, bytes32(0), bytes32(0), bytes32(0), 0, 0, 1e18);
+
+        UserBalance memory redeemerAfter = getUserBalance(redeemer);
+        CdpInfo memory cdp1After = getCdpInfo(cdp1);
+
+        // CDP has not changed (redeem operation has only fullly redeemed CDP2)
+        assertEq(cdp1Before.debt, cdp1After.debt);
+        assertEq(cdp1Before.coll, cdp1After.coll);
+
+        // redeemer had only the amount of eBTC needed for the redemption
+        assertEq(redeemerBefore.debt, cdp2Debt);
+
+        // redeemer now has 0 eBTC (all of them used)
+        assertEq(redeemerAfter.debt, 0);
+
+        // redeemer had no collateral before the operation
+        assertEq(redeemerBefore.coll, 0);
+
+        // CDP2 has been closed
+        assertEq(cdpManager.getCdpStatus(cdp2), 4); // closedByRedemption
+
+        // print the final amount of stETH gained by the reedeemer
+        console.log(&quot;redeemerAfter.coll&quot;, redeemerAfter.coll);
+
+        // in our test scenario gas cost for the operation is ~0,0207 ETH
+
+        // assert that it was not profitable
+        assertLt(redeemerAfter.coll, 0.0207 ether);
+    }
+
+    function calcStake(bytes32 cdpId) public view returns (uint256) {
+        (uint realDebt, uint realColl, uint pendingEBTCDebtReward) = cdpManager.getEntireDebtAndColl(
+            cdpId
+        );
+
+        return (realColl * cdpManager.totalStakesSnapshot()) / cdpManager.totalCollateralSnapshot();
+    }
+
+    function camputeICR(uint256 cdpCollShares, uint256 cdpDebt) public returns (uint256) {
+        uint256 price = priceFeedMock.fetchPrice();
+        uint256 coll = collateral.getPooledEthByShares(cdpCollShares);
+        return (coll * price) / cdpDebt;
+    }
+
+    function getMaxLiquidableDebt(uint256 cdpDebt) public returns (uint256) {
+        // needed for the check they are doing during partial liquidation
+        uint256 price = priceFeedMock.fetchPrice();
+        return cdpDebt - ((MIN_COLLAERAL_SIZE * price) / DECIMAL_PRECISION);
+    }
+
+    function maxWithdraw(uint256 cdpCollShares, uint256 cdpDebt) public returns (uint256) {
+        // how much collateral can I withdraw to still be above MCR with the new ICR?
+        uint256 price = priceFeedMock.fetchPrice();
+        uint256 coll = collateral.getPooledEthByShares(cdpCollShares);
+        uint256 maxWithdrawColl = coll - ((MCR * cdpDebt) / price);
+
+        // remove 1 wei for rounding errors
+        return maxWithdrawColl - 1;
+    }
+
+    function printSystem() public {
+        console.log(&quot;=== PRINT SYSTEM ===&quot;);
+        uint256 price = priceFeedMock.fetchPrice();
+        uint256 tcr = cdpManager.getTCR(price);
+        console.log(&quot;L_EBTCDebt     -&gt;&quot;, cdpManager.L_EBTCDebt());
+        console.log(&quot;stFeePerUnitg  -&gt;&quot;, cdpManager.stFeePerUnitg());
+        console.log(&quot;TCR            -&gt;&quot;, tcr);
+        console.log(&quot;RM ?           -&gt;&quot;, tcr &lt; CCR);
+
+        console.log(&quot;&quot;);
+    }
+
+    function printCdp(bytes32 cdpId) public {
+        (uint256 realDebt, uint256 realColl, ) = cdpManager.getEntireDebtAndColl(cdpId);
+
+        uint256 price = priceFeedMock.fetchPrice();
+        console.log(&quot;=== PRINT CDP ===&quot;);
+        uint256 tcr = cdpManager.getTCR(price);
+        uint256 icr = cdpManager.getCurrentICR(cdpId, price);
+        bool liquidable = icr &lt; MINIMAL_COLLATERAL_RATIO || (tcr &lt; CCR &amp;&amp; icr &lt; tcr);
+        uint256 coll = cdpManager.getCdpColl(cdpId);
+        uint256 debt = cdpManager.getCdpDebt(cdpId);
+
+        // try this
+        coll = realColl;
+        debt = realDebt;
+        // try this
+
+        uint collSt = collateral.getPooledEthByShares(coll);
+
+        console.log(&quot;status   -&gt;&quot;, cdpManager.getCdpStatus(cdpId));
+        console.log(&quot;stake    -&gt;&quot;, cdpManager.getCdpStake(cdpId));
+        console.log(&quot;coll     -&gt;&quot;, coll);
+        console.log(&quot;coll st  -&gt;&quot;, collSt);
+        console.log(&quot;debt     -&gt;&quot;, debt);
+        console.log(&quot;ICR      -&gt;&quot;, icr);
+        console.log(&quot;liq?     -&gt; &quot;, liquidable);
+        console.log(&quot;minColl? -&gt; &quot;, collSt &lt; MIN_COLLAERAL_SIZE);
+        console.log(&quot;&quot;);
+    }
+
+    function getCdpInfo(bytes32 cdpId) public view returns (CdpInfo memory) {
+        (uint realDebt, uint realColl, ) = cdpManager.getEntireDebtAndColl(cdpId);
+        return
+            CdpInfo(
+                cdpManager.getCdpStatus(cdpId),
+                realColl,
+                collateral.getPooledEthByShares(realColl),
+                realDebt
+            );
+    }
+
+    function getUserBalance(address user) public view returns (UserBalance memory) {
+        uint256 debt = eBTCToken.balanceOf(user);
+        uint256 coll = collateral.balanceOf(user);
+        return UserBalance(coll, debt);
+    }
+
+    struct CdpInfo {
+        uint status;
+        uint256 coll;
+        uint256 collStETH;
+        uint256 debt;
+    }
+
+    struct UserBalance {
+        uint256 coll;
+        uint256 debt;
+    }
+}
+</code></pre>
+<p><strong>Recommendation:</strong></p>
+<ol>
+<li>Badger should consider to <strong>always</strong> require, no matter what, that the CDP&#39;s collateral balance is <strong>always</strong> above the <code>MIN_NET_COLL</code> after the execution of <code>BorrowerOperations._adjustCdpInternal</code> and <code>LiquidationLibrary._liquidateCDPPartially</code>.</li>
+</ol>
+<p>It looks like <code>_requirePartialLiqDebtSize()</code> and <code>_convertDebtDenominationToBtc()</code> functions will be no longer needed:</p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/LiquidationLibrary.sol#L960-L969">LiquidationLibrary.sol#L960-L969</a></li>
+</ul>
+<pre><code class="language-solidity">function _requirePartialLiqDebtSize(
+    uint _partialDebt,
+    uint _entireDebt,
+    uint _price
+) internal view {
+    require(
+        (_partialDebt + _convertDebtDenominationToBtc(MIN_NET_COLL, _price)) &lt;= _entireDebt,
+        &quot;LiquidationLibrary: Partial debt liquidated must be less than total debt&quot;
+    );
+}
+</code></pre>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/Dependencies/LiquityBase.sol#L106-L111">LiquityBase.sol#L106-L111</a></li>
+</ul>
+<pre><code class="language-solidity">// Convert debt denominated in ETH to debt denominated in BTC given that _price is ETH/BTC
+// _debt is denominated in ETH
+// _price is ETH/BTC
+function _convertDebtDenominationToBtc(uint _debt, uint _price) internal pure returns (uint) {
+    return (_debt * _price) / DECIMAL_PRECISION;
+}
+</code></pre>
+<p>and can be removed (there are no other usages):</p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/LiquidationLibrary.sol#L340-L348">LiquidationLibrary.sol#L340-L348</a></li>
+</ul>
+<pre><code class="language-diff">  function _liquidateCDPPartially(
+      LocalVar_InternalLiquidate memory _partialState
+  ) private returns (uint256, uint256) {
+      bytes32 _cdpId = _partialState._cdpId;
+      uint _partialDebt = _partialState._partialAmount;
+
+      // calculate entire debt to repay
+      LocalVar_CdpDebtColl memory _debtAndColl = _getEntireDebtAndColl(_cdpId);
+-     _requirePartialLiqDebtSize(_partialDebt, _debtAndColl.entireDebt, _partialState._price);
+</code></pre>
+<ol start="2">
+<li>Badger should also consider removing the dependency to <code>stETH</code> from the <code>LIQUIDATOR_REWARD</code> (gas stipend). By doing so, the reward for the liquidator will always be <code>0.2 ETH</code> without any influence from: </li>
+</ol>
+<ul>
+<li><code>stETH share value</code> at the moment of the liquidation.</li>
+<li><code>stETH</code> peg to <code>ETH</code>.</li>
+<li><code>stETH</code> value in the market.</li>
+</ul>
+<p><strong>BadgerDAO:</strong> Let&#39;s enforce the check of 2 stETH size everywhere, smaller Cdps can still close but are prevented from levering up in general.</p>
+<p><strong>BadgerDAO:</strong> Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/16/2023</time>
+          </div>
+          <div class="body"><p>@dapp-whisperer Imo let&#39;s enforce the check of 2 stETH size everywhere, smaller Cdps can still close but are prevented from levering up in general</p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

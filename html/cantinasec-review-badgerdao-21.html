@@ -1,0 +1,84 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>`LeverageMacroBase.sweepToCaller` could transfer `stETH shares` instead of "pure" `stETH` to avoid leaving dust into the contract</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/21">cantinasec/review-badgerdao#21</a></span>
+        </p>
+        <h1>`LeverageMacroBase.sweepToCaller` could transfer `stETH shares` instead of "pure" `stETH` to avoid leaving dust into the contract</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">StErMi</a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/b2f641aa20615978544547e41a4c2be642252ade/packages/contracts/contracts/LeverageMacroBase.sol#L226">LeverageMacroBase.sol#L226</a></p>
+<p><strong>Description:</strong> From the Lido official documentation about <code>stETH/wstETH</code> integration guide, there is a specific paragraph about <a href="https://docs.lido.fi/guides/steth-integration-guide#1-2-wei-corner-case">&quot;1-2 wei corner case&quot;</a>.</p>
+<blockquote>
+<p>stETH balance calculation includes integer division, and there is a common case when the whole stETH balance can&#39;t be transferred from the account while leaving the last 1-2 wei on the sender&#39;s account. The same thing can actually happen at any transfer or deposit transaction. In the future, when the stETH/share rate will be greater, the error can become a bit bigger. To avoid it, one can use transferShares to be precise.</p>
+</blockquote>
+<p>Lido itself suggests using <code>transferShares</code> instead of <code>transferFrom</code> to avoid this <code>1-2 wei corner case</code>.</p>
+<p><strong>Recommendation:</strong> BadgerDAO could consider using <code>stETH.transferShares</code> instead of <code>stETH.transfer</code> in the <code>LeverageMacroBase.sweepToCaller</code> execution. If BadgerDAO decides to chose so, it should also update <code>collateralBal</code> value properly get the correct share balance of the contract by executing <code>stETH.sharesOf(address(this));</code>.</p>
+<p><strong>BadgerDAO:</strong> Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body"><p><a href="https://github.com/Badger-Finance/ebtc/compare/fix-steth-shares?expand=1">https://github.com/Badger-Finance/ebtc/compare/fix-steth-shares?expand=1</a></p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body"><blockquote>
+<p><a href="https://github.com/Badger-Finance/ebtc/compare/fix-steth-shares?expand=1">Badger-Finance/ebtc@<code>fix-steth-shares</code>?expand=1 (compare)</a></p>
+</blockquote>
+<p>Would you mind referencing all the instances? That link contains quite a few changes :D</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body"><p><a href="https://github.com/Badger-Finance/ebtc/pull/568">https://github.com/Badger-Finance/ebtc/pull/568</a></p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>

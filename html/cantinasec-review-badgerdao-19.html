@@ -1,0 +1,108 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script type="text/javascript" src="lib/jquery.js"></script>
+    <script type="text/javascript" src="lib/jquery.emoji.js"></script>
+    <title>LeverageMacroBase's _doCheckValueType() condition looks to be incorrectly reverted</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <p>
+          <span class="badge open">open</span>
+          <span class="url"><a href="https://github.com/cantinasec/review-badgerdao/issues/19">cantinasec/review-badgerdao#19</a></span>
+        </p>
+        <h1>LeverageMacroBase's _doCheckValueType() condition looks to be incorrectly reverted</h1>
+      </header>
+      <div class="comments">
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">dmitriia</a>
+            <time>8/11/2023</time>
+          </div>
+          <div class="body">
+            <p><strong>Context:</strong> <a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/LeverageMacroBase.sol#L236-L247">LeverageMacroBase.sol#L236-L247</a></p>
+<p><strong>Description:</strong> Given the usage, say for the <code>debt &gt;= minDebt</code> check in:</p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/LeverageMacroBase.sol#L175-L176">LeverageMacroBase.sol#L175-L176</a></li>
+</ul>
+<pre><code class="language-solidity">_doCheckValueType(cdpInfo.debt, checkParams.expectedDebt);
+_doCheckValueType(cdpInfo.coll, checkParams.expectedCollateral);
+</code></pre>
+<p>it looks like <code>_doCheckValueType()</code> needs to compare first argument against the second according to the operator type.</p>
+<p><strong>Recommendation:</strong> Consider making the conditions reverted:</p>
+<ul>
+<li><a href="https://github.com/Badger-Finance/ebtc/blob/1967a223c7948faf3a5711bd485061f51449c404/packages/contracts/contracts/LeverageMacroBase.sol#L236-L247">LeverageMacroBase.sol#L236-L247</a></li>
+</ul>
+<pre><code class="language-diff">  /// @dev Assumes that
+  ///     &gt;= you prob use this one
+  ///     &lt;= if you don&#39;t need &gt;= you go for lte
+  ///     And if you really need eq, it&#39;s third
+  function _doCheckValueType(uint256 valueToCheck, CheckValueAndType memory check) internal {
+      if (check.operator == Operator.skip) {
+          // Early return
+          return;
+      } else if (check.operator == Operator.gte) {
+-         require(check.value &gt;= valueToCheck, &quot;!LeverageMacroReference: gte post check&quot;);
++         require(valueToCheck &gt;= check.value, &quot;!LeverageMacroBase: gte post check&quot;);
+      } else if (check.operator == Operator.lte) {
+-         require(check.value &lt;= valueToCheck, &quot;!LeverageMacroReference: let post check&quot;);
++         require(valueToCheck &lt;= check.value, &quot;!LeverageMacroBase: lte post check&quot;);
+</code></pre>
+<p><strong>BadgerDao:</strong> Addressed in <a href="https://github.com/ebtc-protocol/ebtc/pull/573">PR 573</a>.</p>
+<p><strong>Cantina:</strong> The PR just switched the order of the inputs but has not changed the check (where the problem was). What the check should ensure is that the <code>valueToCheck</code> respects the validation and not the inverse.</p>
+<p><strong>BadgerDAO:</strong> Acknowledged.</p>
+<p><strong>Cantina:</strong> Acknowledged.</p>
+
+          </div>
+        </div>
+
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/GalloDaSballo">
+              GalloDaSballo
+            </a>
+            <time>8/14/2023</time>
+          </div>
+          <div class="body"><p><a href="https://github.com/Badger-Finance/ebtc/pull/573">https://github.com/Badger-Finance/ebtc/pull/573</a></p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/dmitriia">
+              dmitriia
+            </a>
+            <time>9/21/2023</time>
+          </div>
+          <div class="body"><p>It looks like the fix didn&#39;t changed the logic</p>
+</div>
+        </div>
+        <div class="comment">
+          <div class="meta">
+            <a class="person" href="https://github.com/StErMi">
+              StErMi
+            </a>
+            <time>9/21/2023</time>
+          </div>
+          <div class="body"><blockquote>
+<p>It looks like the fix didn&#39;t changed the logic</p>
+</blockquote>
+<p>Agree with what @dmitriia said. The PR just switched the order of the inputs but has not changed the check (where the problem was).</p>
+<p>What the check should ensure is that the <code>valueToCheck</code> respects the validation and not the inverse.</p>
+</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      $(document).ready(function(){
+        $('.comment').each(function(i, d){
+          $(d).emoji()
+        })
+      })
+    </script>
+
+  </body>
+</html>
